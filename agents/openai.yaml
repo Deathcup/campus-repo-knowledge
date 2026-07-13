@@ -1,0 +1,4 @@
+interface:
+  display_name: "Campus Repo Memory"
+  short_description: "Maintain durable codebase knowledge archives."
+  default_prompt: "Use $campus-repo-memory to initialize or sync a repository knowledge archive before coding."
