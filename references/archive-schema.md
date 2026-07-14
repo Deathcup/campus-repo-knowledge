@@ -1,6 +1,6 @@
-# Archive Schema
+# 知识库结构规范
 
-Use this structure at the repository root:
+在代码仓根目录使用以下结构：
 
 ```text
 .repo-knowledge/
@@ -11,129 +11,65 @@ Use this structure at the repository root:
     module-map.json
     code-signals.json
   modules/
-    <module>/
+    <模块名>/
       overview.md
   features/
-    YYYY-MM-DD-slug/
+    YYYY-MM-DD-需求名/
       request.md
       spec.md
       implementation.md
       verification.md
   decisions/
-    0001-title.md
+    0001-决策标题.md
   inbox/
     sync-YYYY-MM-DD-HHMMSS.md
 ```
 
 ## INDEX.md
 
-Purpose: the fast entry point. Keep it under roughly 300 lines.
-
-Required sections:
-
-- Project Snapshot
-- How To Read This Archive
-- Module Index
-- Feature History
-- Decisions
-- Open Inbox Items
-
-Each entry should include a short summary and a relative link.
+快速入口，尽量控制在 300 行以内。包含项目快照、阅读顺序、模块索引、需求历史、关键决策和未处理同步项。每一项都要有一句摘要和相对链接。
 
 ## project.md
 
-Purpose: durable repository overview.
+记录仓库级长期知识：产品与领域、运行架构、入口、构建与测试命令、横切规则、数据/API/UI 契约、运维信息、已知风险和术语表。
 
-Recommended sections:
+## modules/<模块名>/overview.md
 
-- Product / Domain
-- Runtime Architecture
-- Entry Points
-- Build And Test Commands
-- Cross-Cutting Rules
-- Data / API / UI Contracts
-- Operational Notes
-- Known Risks
-- Glossary
+未来 Agent 理解一个子系统的起点。记录模块职责、关键文件、对外接口、数据流、现有行为、扩展点、测试、关联需求、关联决策和维护注意事项。代码事实必须给出相对路径作为证据。
 
-## modules/<module>/overview.md
+## features/YYYY-MM-DD-需求名/
 
-Purpose: where a future agent starts for one subsystem.
+计划中或已完成的需求都使用同一结构：
 
-Recommended sections:
+- `request.md`：用户需求、问题与目标、范围、非目标、约束、待确认问题。
+- `spec.md`：预期行为、受影响模块、输入输出、异常与边界、兼容性、验收条件。
+- `implementation.md`：实现摘要、变更文件、设计说明、迁移或配置、后续事项。
+- `verification.md`：自动化检查、手动检查、测试数据、已知缺口。
 
-- Responsibility
-- Main Files
-- Public Interfaces
-- Data Flow
-- Existing Behavior
-- Extension Points
-- Tests
-- Related Features
-- Related Decisions
-- Maintenance Notes
-
-## features/YYYY-MM-DD-slug/
-
-Use a feature folder for both planned and already-implemented requirements.
-
-`request.md` records user/business intent:
-
-- User Request
-- Problem / Goal
-- In Scope
-- Out Of Scope
-- Constraints
-- Open Questions
-
-`spec.md` records expected behavior:
-
-- Behavior
-- Affected Modules
-- Inputs / Outputs
-- Errors / Edge Cases
-- Compatibility
-- Acceptance Criteria
-
-`implementation.md` records what changed:
-
-- Summary
-- Touched Files
-- Design Notes
-- Migration / Config Notes
-- Follow-Ups
-
-`verification.md` records confidence:
-
-- Automated Checks
-- Manual Checks
-- Fixtures / Test Data
-- Known Gaps
+区分“用户已确认”“代码已验证”和“根据代码推断”。历史需求可以更正，但不要抹掉会影响后续维护的重要背景。
 
 ## decisions/
 
-Use decision records for durable why. One decision per file. Prefer append-only updates or superseding records for major reversals.
-
-Template:
+只记录长期有效、跨越单次需求的取舍。每个文件一个决策；重大反转用新记录取代旧记录，并互相链接。
 
 ```markdown
-# NNNN Title
+# NNNN 决策标题
 
-- Status: proposed | accepted | superseded
-- Date: YYYY-MM-DD
-- Related: links
+- 状态：提议 | 已采纳 | 已取代
+- 日期：YYYY-MM-DD
+- 关联：相对链接
 
-## Context
+## 背景
 
-## Decision
+## 决策
 
-## Consequences
+## 影响
 
-## Alternatives Considered
+## 考虑过的方案
 
-## Follow-Up
+## 后续事项
 ```
 
 ## inbox/
 
-Use inbox notes for raw sync findings that still need curation. Inbox is temporary; canonical information belongs in project, modules, features, or decisions.
+存放尚未整理的同步发现。它是临时收件箱，不是正式知识来源。处理后写明结论去了哪里、哪些问题仍待确认；稳定内容必须进入项目、模块、需求或决策文档。

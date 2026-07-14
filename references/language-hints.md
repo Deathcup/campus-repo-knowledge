@@ -1,41 +1,29 @@
-# Language Hints
+# 语言扫描提示
 
-The archive is language-neutral, but these hints improve first-pass scanning.
+知识库结构与语言无关，下面只用于提高首次扫描和模块划分的准确度。
 
 ## Java
 
-Signals:
+优先查看 `pom.xml`、`build.gradle`、`settings.gradle`、`src/main/java` 和 `src/test/java`。从 package、controller、service、repository、entity、配置类与测试组织推断模块边界。
 
-- `pom.xml`, `build.gradle`, `settings.gradle`
-- `src/main/java`, `src/test/java`
-- packages, controllers, services, repositories, entities, configuration classes
-
-Module cards should record package boundaries, public services/controllers, persistence models, framework conventions, and test style.
+模块卡应记录包边界、公开 service/controller、持久化模型、框架约定、事务或权限等横切规则，以及测试风格。多模块 Maven/Gradle 项目优先按构建模块拆分，再在模块内识别领域边界。
 
 ## TypeScript / Vue 3
 
-Signals:
+优先查看 `package.json`、`vite.config.*`、`tsconfig.json`、`src/main.ts`、router、stores、components、views、composables 和 API 客户端。
 
-- `package.json`, `vite.config.*`, `tsconfig.json`
-- `src/main.ts`, `src/router`, `src/stores`, `src/components`, `src/views`
-- composables, Pinia stores, API clients, route guards, generated API types
-
-Module cards should record UI routes, store ownership, API boundaries, component responsibilities, and build/test commands.
+模块卡应记录页面路由、Pinia 状态归属、API 边界、组件职责、组合式函数、路由守卫、生成类型来源和构建测试命令。不要把每个组件都当成独立模块，按业务能力或稳定目录边界聚合。
 
 ## C
 
-Signals:
+优先查看 `CMakeLists.txt`、`Makefile`、`meson.build`、`src/`、`include/` 和 `tests/`。把公共头文件、导出函数、编译目标、平台条件和测试夹具视为重要边界。
 
-- `CMakeLists.txt`, `Makefile`, `meson.build`
-- `src/`, `include/`, `tests/`
-- public headers, exported functions, compile flags, platform branches
+模块卡应明确内存/资源所有权、生命周期、线程或中断约束、编译宏、平台假设、错误码和测试方式。公共头文件通常比源文件目录更能说明对外契约。
 
-Module cards should record headers as interfaces, ownership/lifetime rules, compile targets, platform assumptions, and test harnesses.
+## 通用原则
 
-## General Heuristics
-
-- Treat build files as architecture evidence.
-- Treat tests as behavior evidence.
-- Treat public headers, exported classes, routes, and API clients as module boundaries.
-- Record generated files as generated and avoid making them primary documentation anchors.
-- If a language-specific parser is unavailable, generate a conservative map from paths and recognizable declarations, then ask the agent to refine after reading code.
+- 构建文件是架构证据，测试是行为证据，提交信息只能作为需求意图线索。
+- 公开头文件、导出类、路由和 API 客户端通常标志模块边界。
+- 标明生成文件及其来源，不把生成文件作为主要文档锚点。
+- 缺少语言解析器时，先按路径和可识别声明生成保守地图，再由 subagent 阅读源码修正。
+- 同一概念跨前后端或跨语言时，分别记录模块职责，并在数据/API 契约处建立双向链接。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Maintain a Markdown knowledge archive for a source repository."""
+"""为代码仓维护可版本化的中文知识库。"""
 
 from __future__ import annotations
 
@@ -51,9 +51,9 @@ def today() -> str:
 
 def slugify(text: str) -> str:
     text = text.lower().strip()
-    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", text)
     text = re.sub(r"-+", "-", text).strip("-")
-    return text or "feature"
+    return text or "需求"
 
 
 def repo_root(path: str | Path) -> Path:
@@ -187,13 +187,13 @@ def scan_repo(repo: Path) -> dict:
 
 def render_repo_map(scan: dict) -> str:
     lines = [
-        "# Repo Map",
+        "# 代码仓地图",
         "",
-        f"- Generated: {scan['generated_at']}",
-        f"- Detected stacks: {', '.join(scan['stacks'])}",
-        f"- Indexed files: {scan['file_count']}",
+        f"- 生成时间：{scan['generated_at']}",
+        f"- 识别技术栈：{', '.join(scan['stacks'])}",
+        f"- 已索引文件：{scan['file_count']}",
         "",
-        "## Modules",
+        "## 模块",
         "",
     ]
     for module, entries in scan["modules"].items():
@@ -204,54 +204,54 @@ def render_repo_map(scan: dict) -> str:
             suffix = f" - {symbols}" if symbols else ""
             lines.append(f"- `{item['path']}`{suffix}")
         if len(entries) > 80:
-            lines.append(f"- ... {len(entries) - 80} more files")
+            lines.append(f"- ……另有 {len(entries) - 80} 个文件")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
 def module_template(module: str, entries: list[dict]) -> str:
-    main_files = "\n".join(f"- `{item['path']}`" for item in entries[:30]) or "- TBD"
+    main_files = "\n".join(f"- `{item['path']}`" for item in entries[:30]) or "- 待补充"
     return f"""# {module}
 
-## Responsibility
+## 模块职责
 
-TBD after reading the code.
+待阅读源码后补充。
 
-## Main Files
+## 关键文件
 
 {main_files}
 
-## Public Interfaces
+## 对外接口
 
-TBD.
+待补充。
 
-## Data Flow
+## 数据流
 
-TBD.
+待补充。
 
-## Existing Behavior
+## 现有行为
 
-TBD.
+待补充。
 
-## Extension Points
+## 扩展点
 
-TBD.
+待补充。
 
-## Tests
+## 测试
 
-TBD.
+待补充。
 
-## Related Features
+## 关联需求
 
-TBD.
+待补充。
 
-## Related Decisions
+## 关联决策
 
-TBD.
+待补充。
 
-## Maintenance Notes
+## 维护注意事项
 
-Generated first pass. Refine this card after source inspection.
+这是自动生成的第一版。阅读源码和测试后补全，并给出相对路径作为证据。
 """
 
 
@@ -260,183 +260,183 @@ def index_content(scan: dict, features: list[Path] | None = None, decisions: lis
     decisions = decisions or []
     module_lines = []
     for module, entries in scan["modules"].items():
-        module_lines.append(f"- [{module}](modules/{slugify(module)}/overview.md) - {len(entries)} indexed files")
-    feature_lines = [f"- [{p.name}](features/{p.name}/request.md)" for p in sorted(features)] or ["- None yet"]
-    decision_lines = [f"- [{p.stem}](decisions/{p.name})" for p in sorted(decisions)] or ["- None yet"]
-    return f"""# Repo Knowledge Index
+        module_lines.append(f"- [{module}](modules/{slugify(module)}/overview.md) - 已索引 {len(entries)} 个文件")
+    feature_lines = [f"- [{p.name}](features/{p.name}/request.md)" for p in sorted(features)] or ["- 暂无"]
+    decision_lines = [f"- [{p.stem}](decisions/{p.name})" for p in sorted(decisions)] or ["- 暂无"]
+    return f"""# 代码仓知识索引
 
-## Project Snapshot
+## 项目快照
 
-- Detected stacks: {", ".join(scan["stacks"])}
-- Indexed files: {scan["file_count"]}
-- Last scan: {scan["generated_at"]}
+- 识别技术栈：{", ".join(scan["stacks"])}
+- 已索引文件：{scan["file_count"]}
+- 最近扫描：{scan["generated_at"]}
 
-## How To Read This Archive
+## 阅读顺序
 
-Start with `project.md`, then open the module card and feature history that match the task. Use `inventory/repo-map.md` for code file discovery.
+先读 `project.md`，再打开与当前任务相关的模块卡、需求历史和决策。需要定位源码时查阅 `inventory/repo-map.md`。
 
-## Module Index
+## 模块索引
 
 {chr(10).join(module_lines)}
 
-## Feature History
+## 需求历史
 
 {chr(10).join(feature_lines)}
 
-## Decisions
+## 关键决策
 
 {chr(10).join(decision_lines)}
 
-## Open Inbox Items
+## 待处理同步项
 
-Review `.repo-knowledge/inbox/` for sync notes that still need curation.
+检查 `.repo-knowledge/inbox/`，将尚未整理的同步记录归入正式知识文档。
 """
 
 
 def project_template(scan: dict) -> str:
-    return f"""# Project Knowledge
+    return f"""# 项目知识
 
-## Product / Domain
+## 产品与领域
 
-TBD.
+待补充。
 
-## Runtime Architecture
+## 运行架构
 
-Detected stacks: {", ".join(scan["stacks"])}.
+识别到的技术栈：{", ".join(scan["stacks"])}。
 
-## Entry Points
+## 入口
 
-TBD.
+待补充。
 
-## Build And Test Commands
+## 构建与测试命令
 
-TBD.
+待补充。
 
-## Cross-Cutting Rules
+## 横切规则
 
-TBD.
+待补充。
 
-## Data / API / UI Contracts
+## 数据、API 与 UI 契约
 
-TBD.
+待补充。
 
-## Operational Notes
+## 运行与运维说明
 
-TBD.
+待补充。
 
-## Known Risks
+## 已知风险
 
-TBD.
+待补充。
 
-## Glossary
+## 术语表
 
-TBD.
+待补充。
 """
 
 
 def feature_templates(title: str) -> dict[str, str]:
     return {
-        "request.md": f"""# {title} - Request
+        "request.md": f"""# {title} - 需求
 
-- Date: {today()}
-- Status: draft
+- 日期：{today()}
+- 状态：草稿
 
-## User Request
+## 用户需求
 
-TBD.
+待补充。
 
-## Problem / Goal
+## 问题与目标
 
-TBD.
+待补充。
 
-## In Scope
+## 范围内
 
-TBD.
+待补充。
 
-## Out Of Scope
+## 非目标
 
-TBD.
+待补充。
 
-## Constraints
+## 约束
 
-TBD.
+待补充。
 
-## Open Questions
+## 待确认问题
 
-TBD.
+待补充。
 """,
-        "spec.md": f"""# {title} - Spec
+        "spec.md": f"""# {title} - 规格
 
-## Behavior
+## 预期行为
 
-TBD.
+待补充。
 
-## Affected Modules
+## 受影响模块
 
-TBD.
+待补充。
 
-## Inputs / Outputs
+## 输入与输出
 
-TBD.
+待补充。
 
-## Errors / Edge Cases
+## 异常与边界
 
-TBD.
+待补充。
 
-## Compatibility
+## 兼容性
 
-TBD.
+待补充。
 
-## Acceptance Criteria
+## 验收条件
 
-TBD.
+待补充。
 """,
-        "implementation.md": f"""# {title} - Implementation
+        "implementation.md": f"""# {title} - 实现
 
-## Summary
+## 实现摘要
 
-TBD.
+待补充。
 
-## Touched Files
+## 变更文件
 
-TBD.
+待补充。
 
-## Design Notes
+## 设计说明
 
-TBD.
+待补充。
 
-## Migration / Config Notes
+## 迁移与配置
 
-TBD.
+待补充。
 
-## Follow-Ups
+## 后续事项
 
-TBD.
+待补充。
 """,
-        "verification.md": f"""# {title} - Verification
+        "verification.md": f"""# {title} - 验证
 
-## Automated Checks
+## 自动化检查
 
-TBD.
+待补充。
 
-## Manual Checks
+## 手动检查
 
-TBD.
+待补充。
 
-## Fixtures / Test Data
+## 测试数据
 
-TBD.
+待补充。
 
-## Known Gaps
+## 已知缺口
 
-TBD.
+待补充。
 """,
     }
 
 
 def ensure_archive(repo: Path) -> None:
     if not archive_root(repo).exists():
-        raise SystemExit("Archive not found. Run init first.")
+        raise SystemExit("未找到知识库，请先执行 init。")
 
 
 def command_init(args: argparse.Namespace) -> None:
@@ -452,7 +452,7 @@ def command_init(args: argparse.Namespace) -> None:
     for module, entries in scan["modules"].items():
         write_if_missing(arc / "modules" / slugify(module) / "overview.md", module_template(module, entries))
     write_text(arc / "INDEX.md", index_content(scan, list((arc / "features").glob("*")), list((arc / "decisions").glob("*.md"))))
-    print(f"Initialized archive at {arc}")
+    print(f"已在 {arc} 初始化知识库")
 
 
 def command_scan(args: argparse.Namespace) -> None:
@@ -467,7 +467,7 @@ def command_scan(args: argparse.Namespace) -> None:
         for module, entries in scan["modules"].items():
             write_if_missing(arc / "modules" / slugify(module) / "overview.md", module_template(module, entries))
         write_text(arc / "INDEX.md", index_content(scan, list((arc / "features").glob("*")), list((arc / "decisions").glob("*.md"))))
-        print("Updated inventory and index.")
+        print("已更新代码清单和索引。")
     else:
         print(render_repo_map(scan))
 
@@ -480,7 +480,7 @@ def command_new_feature(args: argparse.Namespace) -> None:
     for name, content in feature_templates(args.title).items():
         write_if_missing(feature_dir / name, content)
     command_scan(argparse.Namespace(repo=str(repo), update=True))
-    print(f"Created feature folder {feature_dir}")
+    print(f"已创建需求目录 {feature_dir}")
 
 
 def command_archive(args: argparse.Namespace) -> None:
@@ -488,24 +488,24 @@ def command_archive(args: argparse.Namespace) -> None:
     ensure_archive(repo)
     feature_dir = archive_root(repo) / "features" / args.feature
     if not feature_dir.exists():
-        raise SystemExit(f"Feature folder not found: {feature_dir}")
+        raise SystemExit(f"未找到需求目录：{feature_dir}")
     files = [f.strip() for f in (args.files or "").split(",") if f.strip()]
-    touched = "\n".join(f"- `{f}`" for f in files) or "- TBD"
+    touched = "\n".join(f"- `{f}`" for f in files) or "- 待补充"
     impl = feature_dir / "implementation.md"
-    existing = impl.read_text(encoding="utf-8") if impl.exists() else f"# {args.feature} - Implementation\n"
+    existing = impl.read_text(encoding="utf-8") if impl.exists() else f"# {args.feature} - 实现\n"
     addition = f"""
 
-## Archive Note {datetime.now().isoformat(timespec="seconds")}
+## 归档记录 {datetime.now().isoformat(timespec="seconds")}
 
 {args.summary}
 
-### Touched Files
+### 变更文件
 
 {touched}
 """
     write_text(impl, existing.rstrip() + addition)
     command_scan(argparse.Namespace(repo=str(repo), update=True))
-    print(f"Archived note into {impl}")
+    print(f"已将归档记录写入 {impl}")
 
 
 def git_changed_files(repo: Path, since: str | None) -> list[str]:
@@ -534,33 +534,34 @@ def command_sync(args: argparse.Namespace) -> None:
     files = git_changed_files(repo, args.since)
     modules = Counter(guess_module(repo, repo / f) for f in files if (repo / f).suffix.lower() in SOURCE_EXTS)
     lines = [
-        f"# Sync {now_stamp()}",
+        f"# 同步记录 {now_stamp()}",
         "",
-        f"- Base ref: {args.since or 'working tree / staged changes'}",
-        f"- Changed files: {len(files)}",
+        f"- 比较基线：{args.since or '工作区与暂存区改动'}",
+        f"- 变更文件数：{len(files)}",
         "",
-        "## Changed Files",
+        "## 变更文件",
         "",
     ]
-    lines.extend(f"- `{f}`" for f in files or ["No git changes detected."])
-    lines.extend(["", "## Likely Affected Modules", ""])
-    lines.extend(f"- {module}: {count} files" for module, count in modules.most_common() or [("TBD", 0)])
+    lines.extend(f"- `{f}`" for f in files or ["未检测到 Git 变更。"])
+    lines.extend(["", "## 可能受影响的模块", ""])
+    lines.extend(f"- {module}：{count} 个文件" for module, count in modules.most_common() or [("待确认", 0)])
     lines.extend(
         [
             "",
-            "## Curation Checklist",
+            "## 整理清单",
             "",
-            "- [ ] Inspect changed files and tests.",
-            "- [ ] Update module cards for durable behavior changes.",
-            "- [ ] Create or update feature folder for requirement intent.",
-            "- [ ] Create decision record for durable tradeoffs.",
-            "- [ ] Mark this inbox item handled.",
+            "- [ ] 检查变更文件与相关测试。",
+            "- [ ] 将长期行为变化更新到模块卡。",
+            "- [ ] 为需求意图创建或更新需求目录。",
+            "- [ ] 为长期取舍创建决策记录。",
+            "- [ ] 记录推断内容、置信度和待确认项。",
+            "- [ ] 标记本同步项的处理结果。",
         ]
     )
     path = archive_root(repo) / "inbox" / f"sync-{now_stamp()}.md"
     write_text(path, "\n".join(lines) + "\n")
     command_scan(argparse.Namespace(repo=str(repo), update=True))
-    print(f"Wrote sync note {path}")
+    print(f"已生成同步记录 {path}")
 
 
 def command_context(args: argparse.Namespace) -> None:

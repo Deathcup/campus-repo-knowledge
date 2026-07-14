@@ -1,4 +1,4 @@
 interface:
-  display_name: "Campus Repo Memory"
-  short_description: "Maintain durable codebase knowledge archives."
-  default_prompt: "Use $campus-repo-memory to initialize or sync a repository knowledge archive before coding."
+  display_name: "Campus Repo Knowledge"
+  short_description: "为团队维护代码结构、需求背景、实现记录与关键决策的中文知识库"
+  default_prompt: "使用 $campus-repo-knowledge 为当前代码仓初始化或同步中文知识库，并在大型任务中调用 subagent 分片分析。"

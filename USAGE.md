@@ -1,42 +1,208 @@
-# Campus Repo Memory 使用说明
+# Campus Repo Knowledge 使用说明
 
-Campus Repo Memory 是一个给代码仓用的知识归档 skill。它不会强迫你走 SDD，也不是单纯生成一份代码图谱。它的目标更朴素：在代码仓里维护一个 `.repo-knowledge/` 文件夹，把代码结构、需求理解、实现记录、验证结果和关键决策都留下来。下次 agent 接到类似需求时，可以先读这些 Markdown，再去看代码，不用每次都从零开始猜。
+`campus-repo-knowledge` 用来在代码仓中建立和维护一套可版本化的中文知识库。它会把项目结构、模块职责、需求背景、实现记录、验证结论和关键决策整理到目标仓库的 `.repo-knowledge/` 中，供团队成员和后续 Agent 继续使用。
 
-## 安装
+团队成员的日常入口只有提示词：在任务中写明 `$campus-repo-knowledge`、目标仓库和希望完成的工作即可。
 
-如果希望 Codex 自动识别这个 skill，把整个仓库目录复制或移动到 Codex skills 目录：
+## 安装与调用
+
+GitHub 仓库名仍然是 `campus-repo-memory`，安装后的 skill 名称是 `campus-repo-knowledge`。建议把仓库克隆到 Codex 的个人 skills 目录，并将目标目录命名为 `campus-repo-knowledge`：
+
+```powershell
+git clone https://github.com/Deathcup/campus-repo-memory.git "$env:USERPROFILE\.codex\skills\campus-repo-knowledge"
+```
+
+如果仓库已经在本机，也可以把整个目录复制到：
 
 ```text
-C:\Users\Jiang\.codex\skills\campus-repo-memory
+%USERPROFILE%\.codex\skills\campus-repo-knowledge
 ```
 
-临时使用也可以不安装，直接在提示词里指定路径：
+安装后，在新任务中通过下面的格式调用：
 
 ```text
-Use $campus-repo-memory at D:\codex\campus-repo-memory ...
+$campus-repo-knowledge
 ```
 
-如果已经在这个仓库目录下，也可以直接运行脚本：
+可以只写 skill 名称，也可以在同一段提示词中写清目标仓库、当前场景和希望得到的结果。例如：
 
-```powershell
-python scripts\repo_knowledge.py --help
+```text
+请使用 $campus-repo-knowledge 处理当前仓库。先阅读已有知识库和相关源码，再给出结论。
 ```
 
-## 场景一：给新代码仓初始化知识库
+如果需要处理的不是当前工作目录，请给出仓库的绝对路径。团队使用时，建议把生成的 `.repo-knowledge/` 纳入 Git 版本管理，与代码一同评审和提交。
 
-在目标代码仓上运行：
+## 场景一：初始化仓库
 
-```powershell
-python <skill>\scripts\repo_knowledge.py init --repo <repo>
+### 什么时候用
+
+第一次为仓库建立知识库，或者现有 `.repo-knowledge/` 只有空骨架、无法帮助团队定位代码时使用。
+
+### 可复制提示词
+
+```text
+请使用 $campus-repo-knowledge 初始化当前仓库的知识库。
+
+请结合源码、构建配置和测试进行核对，在仓库根目录建立 .repo-knowledge/。重点整理：
+1. 项目用途、技术栈、启动与测试方式；
+2. 主要模块的职责、入口、依赖关系和关键数据流；
+3. 已有约定、高风险区域和维护时不能随意破坏的行为；
+4. 当前无法确认、需要团队补充的信息。
+
+不要只生成目录或机械文件清单。完成后检查索引是否可用，并说明本次覆盖范围和仍待确认的内容。
 ```
 
-例如：
+指定其他仓库时：
 
-```powershell
-python D:\codex\campus-repo-memory\scripts\repo_knowledge.py init --repo D:\codex\your-project
+```text
+请使用 $campus-repo-knowledge 初始化仓库 D:\work\example-service。
+先盘点仓库，再按模块核对源码和测试。将可复用结论写入 .repo-knowledge/，不要修改业务代码。完成后汇总已建立的模块知识、关键决策和待确认项。
 ```
 
-执行后，目标代码仓里会出现：
+### Agent 会做什么
+
+Agent 会先盘点项目，再核对主要入口、模块边界、运行链路、测试方式和关键约束。仓库较大时，它会按模块或横切主题分片调查，最后合并为项目概览、模块说明、必要的决策记录和索引。
+
+### 你要验收什么
+
+确认 `.repo-knowledge/INDEX.md` 能把人带到关键模块和源码证据；项目的启动、测试方式和主要链路有代码依据；待确认内容被明确列出。初始化不要求逐一解释所有文件，但不能只留下目录和机械清单。
+
+## 场景二：增量需求开始前理解上下文
+
+### 什么时候用
+
+准备开发新需求、评估影响范围或讨论方案时使用。最好在写方案和改代码之前调用。
+
+### 可复制提示词
+
+```text
+请使用 $campus-repo-knowledge 帮我开始这个增量需求：
+
+需求：为日志查询增加按操作人批量导出 CSV 的能力，并保持现有权限规则不变。
+
+开始写方案或代码前，请先：
+1. 从 .repo-knowledge/ 中定位负责模块、相关历史需求和长期决策；
+2. 阅读命中的源码与测试，核实现有行为；
+3. 说明当前调用链、权限边界、可能受影响的接口和兼容性风险；
+4. 为本次需求建立档案，记录目标、范围、非目标、待确认问题和验收条件。
+
+先向我汇报上下文结论和需要确认的问题，暂时不要修改代码。
+```
+
+如果需求已经明确，可以让 Agent 直接进入实现：
+
+```text
+请使用 $campus-repo-knowledge 处理当前需求：给设备管理模块增加批量停用功能。
+先读取知识库并用源码、测试核实现有行为，然后建立需求档案并完成实现。开发过程中同步维护需求范围、关键取舍和验收条件；不要把临时推理或完整任务清单写进知识库。
+```
+
+### Agent 会做什么
+
+Agent 会从索引中定位相关模块、历史需求和长期决策，再用源码与测试核实现有行为；随后建立本次需求档案，整理目标、范围、非目标、边界、兼容性风险和验收条件。是否继续实现由提示词决定，skill 本身不强制特定开发流程。
+
+### 你要验收什么
+
+确认 Agent 说明了当前行为和证据路径，而不是只复述需求；受影响模块、接口、权限或数据边界已经识别；未知项与假设清楚可见；需求档案没有混入大量临时推理或已经失效的方案。
+
+## 场景三：开发完成后归档
+
+### 什么时候用
+
+代码已经完成并经过验证，需要把本次改动沉淀为长期知识时使用。即使开发开始时没有调用这个 skill，也可以事后补建需求档案。
+
+### 可复制提示词
+
+```text
+请使用 $campus-repo-knowledge 归档当前已完成的改动。
+
+请结合本轮需求结论、最终 git diff、相关提交和测试结果，完成以下工作：
+1. 补全或新建本次需求档案，记录真实的需求背景、范围和验收条件；
+2. 记录最终实现、关键取舍、变更文件、配置或迁移事项；
+3. 写明实际执行的自动化测试、手动验证和仍未覆盖的风险；
+4. 更新受影响的模块说明；
+5. 只有跨需求、长期有效的取舍才写入 decisions/；
+6. 刷新 INDEX.md，并检查文档描述与最终代码一致。
+
+不要修改业务代码，也不要把已经失效的早期方案当成最终结论。完成后简要说明归档内容和遗留知识缺口。
+```
+
+### Agent 会做什么
+
+Agent 会结合需求结论、最终差异、提交记录和测试结果，补全需求背景、最终实现和验证证据；同时更新受影响模块、必要的长期决策和索引，并剔除已经失效的早期方案。
+
+### 你要验收什么
+
+确认归档内容与最终代码一致，且不只是复述 diff；需求边界、关键取舍、配置或迁移事项、测试结果和未覆盖风险都有记录；只有跨需求长期有效的结论进入 `decisions/`。
+
+## 场景四：未知改动事后同步
+
+### 什么时候用
+
+代码已被修改但知识库没有跟上，或者需要跨多个提交补文档、暂时不知道影响了哪些模块时使用。
+
+### 可复制提示词
+
+```text
+请使用 $campus-repo-knowledge 同步当前仓库中尚未归档的改动。
+
+比较基线使用 HEAD~5。请先检查提交、工作区差异和现有 .repo-knowledge/，将变化按模块和行为聚类，再核对相关源码与测试。把持久结论整理到正确位置：项目级变化写入 project.md，模块行为写入 modules/，需求背景写入 features/，长期取舍写入 decisions/。
+
+无法从代码或提交信息确认的需求意图，请明确标注为“根据代码/提交推断”，并列出证据、置信度和待确认项。不要把推断写成已经确认的事实。完成后刷新索引，并说明同步范围。
+```
+
+只同步未提交改动时：
+
+```text
+请使用 $campus-repo-knowledge 检查当前工作区的未提交改动，并同步 .repo-knowledge/。
+先识别实际行为变化和受影响模块，再更新正式知识文档。忽略纯格式化和无长期价值的机械变化；对无法确认的背景保留待确认项。不要修改业务代码。
+```
+
+### Agent 会做什么
+
+Agent 会确定比较基线，把变化按模块、行为和依赖关系聚类，再核对相关源码与测试。持久结论会被整理到项目、模块、需求或决策文档中；无法确认的需求背景会标为推断，并保留证据、置信度和待确认项。
+
+### 你要验收什么
+
+确认同步范围和比较基线明确；纯格式化等无长期价值的变化没有污染知识库；代码事实与需求意图被区分；推断没有冒充已确认结论；临时发现最终已进入正式文档并更新索引。
+
+## 场景五：快速了解某模块
+
+### 什么时候用
+
+接手模块、评审改动、定位问题或准备技术讨论时使用。这个场景只做定向理解，不需要初始化新需求或扫描整个仓库。
+
+### 可复制提示词
+
+```text
+请使用 $campus-repo-knowledge 快速介绍当前仓库的订单结算模块。
+
+先读 .repo-knowledge/INDEX.md、项目概览、对应模块说明、相关历史需求和决策，再打开必要的源码与测试进行核对。请回答：
+1. 模块负责什么，不负责什么；
+2. 主要入口、核心调用链和数据流；
+3. 对外接口及关键依赖；
+4. 已知约束、历史取舍和高风险区域；
+5. 测试覆盖方式，以及修改该模块前最值得先看的文件。
+
+请给出仓库相对路径作为证据。只读取与该模块直接相关的内容，不要修改代码或知识库。
+```
+
+针对具体问题也可以更短：
+
+```text
+请使用 $campus-repo-knowledge 查清楚“用户被停用后，已有会话为什么仍能访问部分只读接口”。先从知识库定位相关模块和历史决策，再用源码与测试验证。请区分已确认事实、合理推断和仍待确认的问题，不要修改代码。
+```
+
+### Agent 会做什么
+
+Agent 会从索引、模块说明、历史需求和决策中缩小范围，再打开必要的源码与测试核对，最终给出职责边界、调用链、依赖、风险、测试方式和关键文件，并用仓库相对路径标明证据。
+
+### 你要验收什么
+
+确认回答聚焦目标模块，结论能追溯到文档、源码或测试；已确认事实、推断和未知项彼此分开；职责边界和高风险区域说得具体；Agent 没有为了回答局部问题而无目的地遍历全仓库。
+
+## 知识库结构
+
+目标仓库中的 `.repo-knowledge/` 通常包含：
 
 ```text
 .repo-knowledge/
@@ -49,187 +215,45 @@ python D:\codex\campus-repo-memory\scripts\repo_knowledge.py init --repo D:\code
   inbox/
 ```
 
-这一步只会生成第一版骨架和代码扫描结果。真正有价值的部分，是让 agent 继续读代码，把 `TBD` 补成准确的项目知识。可以这样说：
+- `INDEX.md`：知识入口和导航索引。
+- `project.md`：项目级用途、架构、运行方式、约定和风险。
+- `inventory/`：由扫描得到的文件与模块定位信息，偏机械事实。
+- `modules/`：模块职责、入口、接口、数据流、测试和维护注意事项。
+- `features/`：按需求保存背景、规格、实现和验证结论。
+- `decisions/`：跨需求、长期有效的技术或业务取舍。
+- `inbox/`：未知改动同步时的临时整理区，不作为最终知识归档位置。
 
-```text
-Use $campus-repo-memory to initialize knowledge for this repository.
-先读 .repo-knowledge 里生成的内容，再检查主要模块，把 project.md 和 modules/*/overview.md 里的 TBD 补完整。
-重点记录模块职责、入口文件、已有行为、测试方式和后续改动时要注意的规则。
-```
-
-初始化完成后，建议把 `.repo-knowledge/` 一起提交进代码仓。它本来就是代码仓的一部分，不是临时缓存。
-
-## 场景二：有增量需求时先读旧知识，再建需求档案
-
-假设你要给日志模块增加导出功能，可以先查已有知识：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py context --repo <repo> --query "日志 导出"
-```
-
-然后创建一个需求文件夹：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py new-feature --repo <repo> --title "Add log export"
-```
-
-它会生成类似这样的目录：
-
-```text
-.repo-knowledge/features/2026-07-13-add-log-export/
-  request.md
-  spec.md
-  implementation.md
-  verification.md
-```
-
-这几个文件分别放：
-
-- `request.md`：用户到底想要什么，哪些属于范围内，哪些明确不做。
-- `spec.md`：最终行为是什么，影响哪些模块，边界条件怎么处理。
-- `implementation.md`：实际改了哪些文件，为什么这么改，有没有迁移或配置点。
-- `verification.md`：跑了哪些测试，做了哪些手动验证，还有什么风险没覆盖。
-
-你可以手写代码，也可以用 Superpowers、SDD 或别的流程。这个 skill 只负责把最后值得留下的东西整理进 `.repo-knowledge/`。如果 Superpowers 生成了 `requirements.md`、`design.md`、`tasks.md` 之类的文件，不需要整篇复制，只把以后还会用到的需求理解、设计约束和验证结论归档进 feature 文件夹。
-
-## 场景三：开发完成后归档本次改动
-
-功能验证通过后，运行：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py archive --repo <repo> --feature <feature-id> --summary "实现了日志 CSV 导出，支持按级别过滤。" --files "src/api/logs.ts,src/logs/exporter.ts"
-```
-
-`<feature-id>` 就是 feature 目录名，例如：
-
-```text
-2026-07-13-add-log-export
-```
-
-这条命令会给 `implementation.md` 追加一段归档记录，并刷新索引。命令生成的是机械记录，最好再让 agent 检查一遍，把关键意图补进去：
-
-```text
-Use $campus-repo-memory to archive this completed change.
-请结合 git diff、测试结果和现有 .repo-knowledge 内容，更新相关 feature、module overview、decision 和 INDEX。
-不要只列文件名，要记录这个需求为什么这么做、下次改同一块时要注意什么。
-```
-
-## 场景四：有人没用这个 skill 改了代码，事后同步
-
-如果代码已经变了，但 `.repo-knowledge/` 没跟上，可以生成一份待整理记录：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py sync --repo <repo> --since HEAD~1
-```
-
-如果只是想看当前工作区未提交的变化：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py sync --repo <repo>
-```
-
-生成的文件会放在：
-
-```text
-.repo-knowledge/inbox/sync-YYYY-MM-DD-HHMMSS.md
-```
-
-`inbox/` 只是暂存区，不是最终文档。后续需要把里面的发现整理到对应位置：
-
-- 改了整体架构或命令，更新 `project.md`。
-- 改了某个模块行为，更新 `modules/<module>/overview.md`。
-- 补上某个需求背景，新增或更新 `features/<date>-<slug>/`。
-- 出现长期设计取舍，新增 `decisions/NNNN-title.md`。
-
-## 场景五：让 agent 快速理解代码
-
-新需求开始前，可以这样提示：
-
-```text
-Use $campus-repo-memory.
-先读 .repo-knowledge/INDEX.md，再根据我的需求运行 context。
-只打开命中的 module、feature、decision 和相关源码文件。
-在写方案前，先告诉我：这个需求归哪个模块管、已有行为是什么、历史上有什么相关需求、有哪些决策会限制这次改动。
-```
-
-对应命令：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py context --repo <repo> --query "<你的需求关键词>"
-```
-
-这一步的价值是减少无效扫描。agent 不需要一上来读完整个仓库，而是先从索引和历史需求里找到方向，再去看真正相关的代码。
-
-## 常用命令速查
-
-```powershell
-# 初始化
-python <skill>\scripts\repo_knowledge.py init --repo <repo>
-
-# 重新扫描并更新索引
-python <skill>\scripts\repo_knowledge.py scan --repo <repo> --update
-
-# 新建需求档案
-python <skill>\scripts\repo_knowledge.py new-feature --repo <repo> --title "Add log export"
-
-# 完成后归档
-python <skill>\scripts\repo_knowledge.py archive --repo <repo> --feature 2026-07-13-add-log-export --summary "实现了日志导出。" --files "src/api/logs.ts"
-
-# 同步未归档代码变化
-python <skill>\scripts\repo_knowledge.py sync --repo <repo> --since HEAD~1
-
-# 按需求关键词找上下文
-python <skill>\scripts\repo_knowledge.py context --repo <repo> --query "日志 导出 条件"
-```
+需求档案通常分为 `request.md`、`spec.md`、`implementation.md` 和 `verification.md`。这种拆分让需求意图、预期行为、实际实现和验证证据各自清晰，同时仍能通过同一目录串起完整历史。
 
 ## 设计方案
 
-这个 skill 的核心设计是把 agent 的“临时理解”变成仓库里的“长期资料”。很多工具能帮助 agent 更快看懂代码，比如 repo map、code graph、code memory，但它们通常更偏代码结构；而实际开发里，真正难恢复的是需求上下文：当时为什么这么做，哪些边界被讨论过，哪些方案被放弃了，验证到什么程度。
+这个 skill 的核心思路，是把 Agent 在一次任务中的临时理解，整理为仓库内可长期维护的工程资料。知识库不替代源码，也不假设文档永远正确；每次使用时仍需以已验证的代码和测试为准，发现冲突就修正文档。
 
-所以 `.repo-knowledge/` 分成几类内容：
+代码结构与需求历史分开记录。模块文档回答“代码现在如何组织和运行”，需求档案回答“某次改动为什么发生、最终怎样落地”，决策记录回答“哪些长期取舍会约束后续工作”。这样既避免把所有信息塞进一份大文档，也减少同一结论在多处反复复制。
 
-- `INDEX.md`：入口索引。新 agent 先读它，知道该去哪看。
-- `project.md`：项目级知识。放架构、命令、约定、风险和术语。
-- `inventory/`：代码扫描结果。偏机械，用来定位文件和模块。
-- `modules/`：模块卡片。记录职责、主文件、接口、数据流、测试和维护注意点。
-- `features/`：需求历史。每个需求一组 `request/spec/implementation/verification`。
-- `decisions/`：长期决策。类似 ADR，记录为什么选这个方案，以及后果。
-- `inbox/`：同步暂存区。用于接住那些还没整理进正式文档的代码变化。
+读取过程遵循最小上下文原则：先从索引和关键词找到相关模块、需求与决策，再阅读它们指向的源码和测试。大型初始化或未知范围同步会按模块或变更簇分片调查，由主 Agent 汇总结论，避免把整个仓库一次性塞入上下文。
 
-脚本负责做稳定、重复、容易出错的部分，比如建目录、扫文件、生成索引、读 git diff。业务理解仍然交给 agent 和人来补，因为这类内容不能只靠自动扫描生成。
+写入内容强调可复用性。临时任务清单、未采用方案的长篇推演和自动生成的文件列表通常没有必要长期保存；需求边界、兼容性约束、关键取舍、迁移事项和验证缺口则值得保留。
 
-## 为什么这样做
+## 方案优势
 
-第一，它是 Markdown 文件，能进 git，能 code review，能被人直接改。不会因为换了机器、换了 agent、换了 MCP 服务就丢掉。
+首先，知识库是普通 Markdown，可以跟随 Git 提交、参与代码评审，也能由团队成员直接修正。它不依赖某台机器上的私有数据库，也不绑定单一 Agent 或开发工具。
 
-第二，它把“代码事实”和“需求理解”放在一起，但不混成一坨。模块卡负责说明代码现在怎么组织，feature 负责说明某次需求为什么这样落地，decision 负责说明长期取舍。
+其次，它同时保存代码事实和需求意图，但明确区分两者。后来者不仅能看到模块在哪里，还能知道某个边界为什么存在、哪些方案曾被放弃、当前结论验证到了什么程度。
 
-第三，它不绑定开发模式。你可以手写代码，可以用 SDD，也可以用 Superpowers。只要最后把有用的理解归档回来，下次就能复用。
+再次，它不强制团队改用特定研发流程。无论是直接开发、SDD，还是配合其他规划和代码分析工具，最终只需把长期有效的结论整理回 `.repo-knowledge/`。
 
-第四，它允许慢同步。初始化和事后同步可以花久一点，甚至可以分模块慢慢补；但一旦补过，下次处理同一块需求会快很多。
+最后，它允许渐进维护。初始化时可以先覆盖关键模块，后续在真实需求中持续补全；发生漏记时也可以根据提交和差异事后同步。知识库会随着仓库一起成熟，而不是要求团队先完成一轮昂贵的全面文档工程。
 
-第五，它对语言不强绑定。当前扫描重点照顾 Java、TypeScript/Vue 3 和 C，但目录结构和归档方法本身适用于大多数代码仓。
+## 实现说明与排障
 
-## 已验证内容
+skill 内部通过 `scripts/repo_knowledge.py` 完成建目录、扫描、建立需求档案、读取 Git 差异和刷新索引等稳定的机械操作。Agent 会根据场景调用这些能力，并结合源码、需求和测试补全内容。团队使用入口始终是 `$campus-repo-knowledge` 提示词。
 
-我用一个混合语言样例仓测过以下路径：
+如果 skill 没有被识别，先检查以下事项：
 
-- TypeScript API/store 文件
-- Java 日志服务
-- C header/source 导出函数
+1. 安装目录是否为 `%USERPROFILE%\.codex\skills\campus-repo-knowledge`；
+2. 该目录下是否直接存在 `SKILL.md`，而不是多嵌套了一层 `campus-repo-memory`；
+3. 调用格式是否为 `$campus-repo-knowledge`；
+4. 安装后是否在新任务中重新调用。
 
-验证过的命令：
-
-```powershell
-python <skill>\scripts\repo_knowledge.py init --repo <sample>
-python <skill>\scripts\repo_knowledge.py new-feature --repo <sample> --title "Add log export"
-python <skill>\scripts\repo_knowledge.py archive --repo <sample> --feature 2026-07-13-add-log-export --summary "Implemented CSV log export for filtered logs and documented acceptance criteria." --files "src/api/logs.ts,src/c/log_export.c,include/log_export.h"
-python <skill>\scripts\repo_knowledge.py sync --repo <sample>
-python <skill>\scripts\repo_knowledge.py context --repo <sample> --query "exportLogs"
-python C:\Users\Jiang\.codex\skills\.system\skill-creator\scripts\quick_validate.py <skill>
-```
-
-验证时顺手修了两个问题：
-
-- Java 包路径一开始分得太粗，`com.demo.logs` 会被归到 `com`。现在会归到更有意义的 `logs`。
-- `git status --short` 的路径解析在某些情况下会吞掉首字母。现在已经改成按状态前缀解析，并且会过滤 `.repo-knowledge/` 自身变化，减少同步噪音。
+内部工具生成的骨架、扫描结果和机械记录不等于完整知识库。若结果只有文件清单、存在大量待补充项，或描述与代码冲突，应在提示词中要求 Agent 重新核对相关源码和测试。维护 skill 本身时，再检查内部工具日志和执行环境。
