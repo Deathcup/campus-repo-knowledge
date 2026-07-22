@@ -1,4 +1,4 @@
 interface:
   display_name: "Campus Repo Knowledge"
-  short_description: "为团队维护代码结构、需求背景、实现记录与关键决策的中文知识库"
-  default_prompt: "使用 $campus-repo-knowledge 为当前代码仓初始化或同步中文知识库，并在大型任务中调用 subagent 分片分析。"
+  short_description: "生成面向团队成员与Agent并可逐级定位接口实现的分层代码仓知识库"
+  default_prompt: "使用 $campus-repo-knowledge 为当前仓库生成或查询分层知识库，并按总览、子系统、模块、源码逐级定位。"
