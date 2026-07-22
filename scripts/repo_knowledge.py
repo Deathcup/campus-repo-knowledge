@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 IGNORE_DIRS = {
     ".git", ".repo-knowledge", "node_modules", "dist", "build", "target",
     ".gradle", ".idea", ".vscode", "__pycache__", "coverage", "vendor",
@@ -125,6 +125,16 @@ def classify_system(name: str, files: list[Path]) -> str:
     return name if name not in {".", "root"} else "主工程"
 
 
+def system_kind(name: str, files: list[Path]) -> str:
+    lowered = name.lower()
+    suffixes = {p.suffix.lower() for p in files}
+    if lowered in FRONTEND_HINTS or suffixes & {".vue", ".tsx", ".jsx"}:
+        return "frontend"
+    if lowered in BACKEND_HINTS or suffixes & {".java", ".kt", ".go", ".rs", ".cs"}:
+        return "backend"
+    return "general"
+
+
 def discover_system_roots(repo: Path) -> list[tuple[str, Path]]:
     """保守识别顶层子系统；复杂仓库由 Agent 根据源码修正名称和边界。"""
     children: list[tuple[str, Path]] = []
@@ -146,7 +156,10 @@ def discover_system_roots(repo: Path) -> list[tuple[str, Path]]:
 def source_relative_parts(path: Path, system_root: Path) -> list[str]:
     parts = list(path.relative_to(system_root).parts[:-1])
     joined = "/".join(parts)
-    markers = ["src/main/java/", "src/main/kotlin/", "src/", "lib/", "app/"]
+    markers = [
+        "src/main/java/", "src/main/kotlin/", "src/test/java/", "src/test/kotlin/",
+        "src/", "tests/", "test/", "lib/", "app/",
+    ]
     for marker in markers:
         if marker in joined + "/":
             tail = (joined + "/").split(marker, 1)[1].strip("/")
@@ -166,7 +179,7 @@ def guess_module(path: Path, system_root: Path) -> str:
             stem = re.sub(r"(?:controller|service|repository|api|view|page)$", "", path.stem, flags=re.I)
             return stem or part
     # Java 包名前缀通常较深，末级目录比公司域名更接近业务模块。
-    if "src/main/java/" in path.as_posix() or "src/main/kotlin/" in path.as_posix():
+    if any(marker in path.as_posix() for marker in ("src/main/java/", "src/main/kotlin/", "src/test/java/", "src/test/kotlin/")):
         return dirs[-1] if dirs else "核心"
     if dirs:
         return dirs[0]
@@ -225,6 +238,8 @@ def scan_repo(repo: Path) -> dict:
         system_slug = base_slug if used_slugs[base_slug] == 1 else f"{base_slug}-{used_slugs[base_slug]}"
         modules: dict[str, list[dict]] = defaultdict(list)
         for path in files:
+            if path.name in MANIFESTS:
+                continue
             module = guess_module(path, root)
             modules[module].append({
                 "path": rel(path, repo),
@@ -233,6 +248,7 @@ def scan_repo(repo: Path) -> dict:
             })
         systems[system_slug] = {
             "name": display_name,
+            "kind": system_kind(root.name if root != repo else display_name, files),
             "root": "." if root == repo else rel(root, repo),
             "stacks": detect_stack(files),
             "file_count": len(files),
@@ -277,7 +293,11 @@ def root_index(scan: dict, features: list[Path], decisions: list[Path]) -> str:
 
 ## 跨系统主链路
 
-待补充用户请求、前端调用、后端处理、持久化或外部依赖之间的端到端链路，并链接对应模块。
+待补充 3–8 条最重要的业务旅程：用户目标 → 前端页面/调用方 → 后端用例 → 数据或外部系统 → 用户可见结果。每一步链接对应子系统或模块。
+
+## 新人上手路径
+
+待补充按业务价值排序的阅读路线，以及本地启动一条最小端到端流程的方法。
 
 ## 全局约束
 
@@ -323,7 +343,15 @@ def system_overview(system_slug: str, system: dict) -> str:
 
 ## 子系统入口与主链路
 
-待补充启动入口、请求入口、核心编排路径及关键依赖，并链接到模块文档。
+待补充启动入口、主要用户/业务流程、模块协作顺序及关键依赖，并链接到模块文档。不能只列路由或包结构。
+
+## 模块关系与典型业务旅程
+
+用文字或 Mermaid 图解释模块如何协作。前端说明页面、状态、组件与 API 的关系；后端说明入口、业务用例、数据与外部依赖的关系。
+
+## 新人开发入口
+
+说明首次开发通常从哪些模块开始，如何启动、准备数据、验证一条最小业务流程，以及哪些共享规则必须先读。
 
 ## 共享约束
 
@@ -335,72 +363,111 @@ def system_overview(system_slug: str, system: dict) -> str:
 """
 
 
-def module_template(system: dict, module: str, entries: list[dict]) -> str:
+def common_module_header(system: dict, module: str) -> str:
+    return f"""# {module}模块开发手册
+
+> 所属子系统：{system['name']}。目标读者是只熟悉编程语言、第一次接触本服务的开发者。本文完成后，读者应能理解业务、解释主要流程、定位关键实现，并安全地开始开发。
+
+## 阅读地图
+
+用 5–10 行说明建议阅读顺序：先理解哪个业务场景，再看哪条流程、哪些组件或服务、哪些数据与规则，最后如何运行和验证。
+
+## 业务背景与用户价值
+
+说明这个模块为谁解决什么问题、在完整产品流程中处于哪一环、业务成功和失败分别意味着什么。不得只描述“提供增删改查”。
+
+## 业务术语与核心概念
+
+| 术语 | 面向新人的解释 | 代码中的对应物 |
+| --- | --- | --- |
+| 待调查 | 说明业务含义、生命周期和与相近概念的区别 | `类型/字段/文件#符号` |
+
+## 角色、权限与职责边界
+
+- 使用者与角色：列出谁会触发本模块以及各自能做什么。
+- 权限与数据范围：说明租户、组织、角色、所有权或可见性限制在何处生效。
+- 本模块负责：按业务结果描述。
+- 本模块不负责：指出相邻模块并链接。
+- 上下游：说明输入从哪里来、结果被谁消费。
+"""
+
+
+def frontend_module_template(system: dict, module: str, entries: list[dict]) -> str:
     files = "\n".join(f"- `{item['path']}`" for item in entries[:40]) or "- 待补充"
     found_routes = list(dict.fromkeys(r for item in entries for r in item["routes"]))
-    route_rows = "\n".join(f"| `{route}` | 待补充 | 待补充 | 待补充 |" for route in found_routes) or "| 待补充 | 待补充 | 待补充 | 待补充 |"
-    return f"""# {module}模块
+    route_rows = "\n".join(f"| `{route}` | 触发场景待调查 | 页面/View 待调查 | 权限/参数待调查 |" for route in found_routes) or "| 路由待调查 | 触发场景待调查 | 页面/View 待调查 | 权限/参数待调查 |"
+    return common_module_header(system, module) + f"""
 
-> 所属子系统：{system['name']}。本文既是人的维护手册，也是 Agent 定位实现的证据索引；结论须用仓库相对路径锚定。
+## 页面入口、路由与访问条件
 
-## 一句话说明
-
-待阅读源码后，用非框架术语说明该模块解决什么业务问题。
-
-## 职责边界
-
-- 负责：待补充
-- 不负责：待补充
-- 上游调用者：待补充
-- 下游依赖：待补充
-
-## 接口目录
-
-| 方法与路径 / 调用入口 | 用途 | 入口实现 | 核心实现 |
+| 页面路由/入口 | 用户从哪里进入 | 根 View | 路由参数、权限与守卫 |
 | --- | --- | --- | --- |
 {route_rows}
 
-每个接口都应填写方法、完整路径、Controller/Handler/函数、核心 Service/UseCase，并在下节解释实现，不得只抄注解或函数签名。
+说明菜单、父页面、重定向、动态路由、权限指令和直接访问 URL 时的行为。
 
-## 接口与实现详解
+## 页面总体流程
 
-### `<METHOD> <path>` 或 `<公开函数>`
+从用户视角完整讲述“进入页面 → 初始化 → 查看/筛选/编辑 → 提交 → 成功或失败反馈”的过程。至少覆盖首屏加载、主要成功路径、空数据、权限不足、接口失败和离开页面；使用编号步骤，复杂流程补 Mermaid 流程图。
 
-- 用途与调用方：待补充
-- 鉴权与前置条件：待补充
-- 请求参数：待补充必填项、默认值、校验和示例
-- 返回结果：待补充成功结构、分页或状态变化
-- 实现链路：`入口` → `业务编排` → `数据访问/外部服务`
-- 关键分支：待补充过滤、权限、事务、缓存、幂等或降级逻辑
-- 异常与错误码：待补充
-- 代码证据：待补充到具体文件和符号
-- 测试证据：待补充
+## View 与重要组件结构
 
-若有多个接口，为每个接口复制一个三级标题；接口很多时按业务动作分组，但仍保留逐接口定位信息。
+先给出组件树，再解释重要组件为什么存在。不要只复制 import 列表。
 
-## 核心实现与数据流
+```text
+<RootView>（页面编排、查询状态）
+├─ <FilterPanel>（收集筛选条件、触发查询）
+├─ <ResultTable>（展示结果、分页、选择）
+└─ <DetailDialog>（查看详情、关闭后刷新条件）
+```
 
-用编号步骤解释正常路径和关键分支，使不了解代码的人能顺着路径理解；必要时补 Mermaid 图。待补充。
+| View/组件 | 用户看到什么 | 业务职责 | 关键 props/emits/slots | 状态与接口 | 代码证据 |
+| --- | --- | --- | --- | --- | --- |
+| 待调查 | 不描述样式，描述用户能力 | 解释为何独立、与父子组件如何协作 | 列出影响业务的契约 | local/store/query/API | `文件#符号` |
 
-## 数据与状态
+“重要组件”包括承载业务动作、状态边界、复杂展示或复用契约的组件；纯样式包装可合并说明。
 
-待补充核心模型、字段语义、表/索引、状态机、缓存键、事件或前端状态归属。
+## 状态、数据与副作用
 
-## 配置、权限与外部依赖
+| 状态/数据 | 来源 | 所有者 | 更新时机 | 消费者 | 重置/缓存/持久化 |
+| --- | --- | --- | --- | --- | --- |
+| 待调查 | route/store/API/props | View、store 或 composable | 触发条件 | 组件或请求 | 生命周期与失效规则 |
 
-待补充配置项、权限规则、第三方服务、跨模块契约及失效行为。
+解释计算属性、watch/effect、异步竞态、请求取消、防抖、分页、缓存、URL 同步和组件卸载清理；没有某项时明确写“不涉及”及依据。
 
-## 修改指南
+## 用户交互与关键前端逻辑
 
-- 常见扩展点：待补充
-- 修改时必须同步的位置：待补充
-- 容易踩坑的隐含约束：待补充
+按业务动作分别解释：触发控件 → 事件处理函数 → 校验/转换 → 状态变化 → API 调用 → 页面反馈。覆盖禁用条件、二次确认、错误提示、乐观更新或回滚、重复提交和并发请求。
+
+## 接口协作
+
+| API 客户端/接口 | 由哪个动作触发 | 请求如何组装 | 响应如何转换和落入状态 | 失败时用户看到什么 |
+| --- | --- | --- | --- | --- |
+| 待调查 | 页面加载/按钮/分页等 | 默认值、过滤和格式转换 | DTO→ViewModel/store | 提示、保留状态、重试 |
+
+逐个解释重要接口，不得只写路径和入参出参。链接后端模块文档（若同仓存在），指出前后端字段、枚举、分页和时间语义。
+
+## 业务规则与边界场景
+
+列出前端实际执行或展示的业务规则：显示/隐藏、可编辑条件、字段联动、状态转换、数据范围、格式化、排序、空态和降级。对每条规则写触发条件、行为结果和代码证据。
+
+## 开发指南
+
+### 增加或修改一个业务能力
+
+按真实工程给出操作顺序：需要修改哪些 View、组件、composable/store、API 类型、路由、权限和测试；说明哪些生成文件不能手改。
+
+### 安全修改清单
+
+- 必须保持的组件/API 契约：待调查并替换。
+- 容易漏改的联动位置：待调查并替换。
+- 常见错误与原因：待调查并替换。
 
 ## 构建、测试与排障
 
-- 最小验证命令：待补充
-- 关键测试：待补充
-- 常见故障定位：待补充症状、日志/指标、排查入口
+- 本模块最小启动与验证命令：待调查并替换。
+- 单元/组件/E2E 测试及各自覆盖的用户场景：待调查并替换。
+- 常见症状 → 检查状态/网络/组件/路由的位置 → 关键代码入口：待调查并替换。
 
 ## 关键文件
 
@@ -408,14 +475,119 @@ def module_template(system: dict, module: str, entries: list[dict]) -> str:
 
 ## 关联知识
 
-- 相关需求：待补充链接
-- 相关决策：待补充链接
-- 相邻模块：待补充链接
+- 相关需求：待调查并替换为链接或“暂无”
+- 相关决策：待调查并替换为链接或“暂无”
+- 相邻模块：待调查并替换为链接
 
 ## 待确认项
 
-- 待补充；完成初始化前必须明确哪些是真未知，不能用笼统“待补充”代替调查。
+- 只保留无法从仓库确认的具体问题，并附已查证据；不得保留模板提示或笼统未知。
 """
+
+
+def backend_module_template(system: dict, module: str, entries: list[dict]) -> str:
+    files = "\n".join(f"- `{item['path']}`" for item in entries[:40]) or "- 待调查"
+    found_routes = list(dict.fromkeys(r for item in entries for r in item["routes"]))
+    route_rows = "\n".join(f"| `{route}` | 业务用途待调查 | 入口待调查 | 核心用例待调查 |" for route in found_routes) or "| 接口待调查 | 业务用途待调查 | 入口待调查 | 核心用例待调查 |"
+    return common_module_header(system, module) + f"""
+
+## 业务用例与总体流程
+
+按业务用例而不是按 Controller 类组织。每个用例先用新人能理解的语言说明触发者、前置状态、成功结果和失败结果，再用 4–10 个编号步骤串起鉴权、校验、业务计算、持久化、外部调用和响应。复杂流程补 Mermaid 流程图或时序图。
+
+## 业务规则与关键分支
+
+| 规则/分支 | 触发条件 | 系统行为 | 为什么需要 | 代码与测试证据 |
+| --- | --- | --- | --- | --- |
+| 待调查 | 输入、角色或当前状态 | 返回/数据变化/副作用 | 业务约束或技术保护 | `文件#符号` |
+
+必须覆盖权限和数据范围、状态机、重复请求、边界值、空结果、部分失败、降级和异常路径。不得用“调用 Service 处理”代替逻辑解释。
+
+## 接口目录
+
+| 方法与路径 / 调用入口 | 业务用途 | 入口实现 | 核心业务实现 |
+| --- | --- | --- | --- |
+{route_rows}
+
+## 接口与实现详解
+
+### `<METHOD> <path>` 或 `<事件/任务/公开函数>`
+
+- 业务场景与调用方：待调查并替换。
+- 鉴权、数据范围与前置状态：待调查并替换。
+- 请求语义：解释字段的业务含义、默认值、单位、时区、校验和字段联动。
+- 成功结果：说明返回值以及产生的数据、状态或事件变化。
+- 完整实现链路：`入口#符号` → `业务编排#符号` → `领域规则#符号` → `数据访问/外部服务#符号`。
+- 关键算法与查询：用伪代码或分步文字解释条件构造、计算、聚合、排序、分页、映射，不粘贴大段源码。
+- 分支与异常：逐条说明触发条件、错误码/异常、是否产生副作用。
+- 事务、并发、幂等与缓存：说明边界和失败恢复；不涉及时写依据。
+- 日志、指标与审计：说明成功/失败如何观测以及敏感信息处理。
+- 代码与测试证据：链接到具体文件和符号。
+
+为每个重要接口、消费者、任务或公开入口建立独立三级标题。相似 CRUD 可以合并公共部分，但必须单列不同业务规则。
+
+## 数据模型与持久化
+
+| 模型/表/索引/缓存 | 业务含义 | 关键字段与约束 | 读写时机 | 生命周期与关联 |
+| --- | --- | --- | --- | --- |
+| 待调查 | 新人可理解的领域含义 | 主键、唯一性、状态、时间、单位 | 哪个用例读写 | 创建、变更、删除/过期 |
+
+解释 DTO、领域模型与持久化模型之间的转换，查询条件如何落到 SQL/ES/缓存，索引或性能假设是什么。
+
+## 事务、一致性与并发
+
+说明事务从哪里开始和提交，跨资源一致性如何保证，锁/版本号/幂等键/去重如何工作，失败后是否重试、补偿或留下部分结果。没有显式机制时说明当前风险。
+
+## 依赖、事件与外部副作用
+
+| 依赖/事件 | 调用时机 | 输入输出契约 | 超时/失败/重试 | 对业务结果的影响 |
+| --- | --- | --- | --- | --- |
+| 待调查 | 在用例第几步 | 关键字段 | 实际策略 | 强依赖、可降级或异步最终一致 |
+
+覆盖消息、第三方服务、文件、邮件、审计、定时任务和跨模块调用。
+
+## 配置、权限与运行约束
+
+解释配置键、默认值、环境差异、特性开关、权限注解/中间件、资源上限和安全约束，并给读取位置。
+
+## 开发指南
+
+### 增加或修改一个业务能力
+
+按本仓库真实结构说明通常要改哪些入口、应用/领域服务、模型、仓储、迁移、事件、配置和测试；指出生成代码和兼容性要求。
+
+### 安全修改清单
+
+- 修改前必须确认的业务规则：待调查并替换。
+- 必须同步的调用方、数据和文档：待调查并替换。
+- 容易破坏的隐含约束与性能假设：待调查并替换。
+
+## 构建、测试与排障
+
+- 本模块最小构建、启动和测试命令：待调查并替换。
+- 关键单元/集成/契约测试以及覆盖的业务分支：待调查并替换。
+- 常见症状 → 日志/指标/数据检查 → 关键代码入口：待调查并替换。
+
+## 关键文件
+
+{files}
+
+## 关联知识
+
+- 相关需求：待调查并替换为链接或“暂无”
+- 相关决策：待调查并替换为链接或“暂无”
+- 相邻模块与调用方：待调查并替换为链接
+
+## 待确认项
+
+- 只保留无法从仓库确认的具体问题，并附已查证据；不得保留模板提示或笼统未知。
+"""
+
+
+def module_template(system: dict, module: str, entries: list[dict]) -> str:
+    if system.get("kind") == "frontend":
+        return frontend_module_template(system, module, entries)
+    return backend_module_template(system, module, entries)
 
 
 def render_repo_map(scan: dict) -> str:
@@ -532,7 +704,8 @@ def command_sync(args: argparse.Namespace) -> None:
         f"- 变更文件数：{len(files)}", "", "## 变更文件", "",
         *(f"- `{f}`" for f in files), "", "## 分层更新清单", "",
         "- [ ] 从根总览判断受影响子系统。", "- [ ] 更新子系统总览中的模块路由与检索词。",
-        "- [ ] 更新每个受影响模块的接口目录、实现链路、测试和风险。",
+        "- [ ] 更新每个受影响模块的业务流程、组件/服务协作、规则分支、接口实现、数据、开发指南和测试。",
+        "- [ ] 前端复核 View、重要组件、状态、交互和 API；后端复核关键逻辑、查询/计算、事务并发和副作用。",
         "- [ ] 将需求意图和长期决策分别归档。", "- [ ] 运行 doctor 并记录处理结果。",
     ]
     path = archive_root(repo) / "inbox" / f"sync-{now_stamp()}.md"
@@ -576,8 +749,25 @@ def command_context(args: argparse.Namespace) -> None:
         modules = list((overview.parent / "modules").glob("*.md"))
         ranked_modules = sorted(((text_score(p, terms), p) for p in modules), key=lambda x: (-x[0], x[1].as_posix()))
         for score, module in ([x for x in ranked_modules if x[0] > 0][: args.limit] or ranked_modules[:1]):
-            print(f"3\t模块文档\t{rel(module, repo)}\t匹配分 {score}；读取接口实现链路和证据路径")
-    print("4\t源码核验\t读取模块文档链接的最少源码与测试\t文档用于路由，最终事实以代码和测试为准")
+            print(f"3\t模块开发手册\t{rel(module, repo)}\t匹配分 {score}；先理解业务、流程和关键逻辑，再定位代码")
+    print("4\t源码核验\t读取模块手册链接的最少源码与测试\t验证文档仍与当前实现一致")
+
+
+def section_body(text: str, heading: str) -> str:
+    match = re.search(
+        rf"(?ms)^## {re.escape(heading)}\s*$\n(.*?)(?=^## |\Z)",
+        text,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def system_kinds(arc: Path) -> dict[str, str]:
+    path = arc / "inventory" / "navigation.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {slug: system.get("kind", "general") for slug, system in data.get("systems", {}).items()}
 
 
 def command_doctor(args: argparse.Namespace) -> None:
@@ -594,17 +784,72 @@ def command_doctor(args: argparse.Namespace) -> None:
     module_docs = list((arc / "systems").glob("*/modules/*.md"))
     if not module_docs:
         errors.append("缺少模块独立文档")
-    required_sections = ["## 接口目录", "## 接口与实现详解", "## 核心实现与数据流", "## 构建、测试与排障"]
+    template_markers = ["待补充", "待核对", "待调查", "并替换", "<RootView>", "<METHOD>"]
+    index_path = arc / "INDEX.md"
+    if index_path.exists():
+        index_text = index_path.read_text(encoding="utf-8", errors="ignore")
+        for section in ["项目摘要", "子系统导航", "跨系统主链路", "新人上手路径", "全局约束"]:
+            body = section_body(index_text, section)
+            if not body:
+                errors.append(f"{rel(index_path, repo)} 缺少章节：{section}")
+            elif len(re.sub(r"\s+", "", body)) < 60:
+                warnings.append(f"{rel(index_path, repo)} 章节内容过浅：{section}")
+        if any(marker in index_text for marker in template_markers):
+            warnings.append(f"{rel(index_path, repo)} 仍有模板提示或未完成内容")
+    for overview in overviews:
+        overview_text = overview.read_text(encoding="utf-8", errors="ignore")
+        for section in ["边界与职责", "模块导航", "子系统入口与主链路", "模块关系与典型业务旅程", "新人开发入口", "共享约束"]:
+            body = section_body(overview_text, section)
+            if not body:
+                errors.append(f"{rel(overview, repo)} 缺少章节：{section}")
+            elif len(re.sub(r"\s+", "", body)) < 60:
+                warnings.append(f"{rel(overview, repo)} 章节内容过浅：{section}")
+        if any(marker in overview_text for marker in template_markers):
+            warnings.append(f"{rel(overview, repo)} 仍有模板提示或未完成内容")
+    kinds = system_kinds(arc)
+    common_sections = [
+        "阅读地图", "业务背景与用户价值", "业务术语与核心概念",
+        "角色、权限与职责边界", "开发指南", "构建、测试与排障",
+    ]
+    frontend_sections = [
+        "页面入口、路由与访问条件", "页面总体流程", "View 与重要组件结构",
+        "状态、数据与副作用", "用户交互与关键前端逻辑", "接口协作", "业务规则与边界场景",
+    ]
+    backend_sections = [
+        "业务用例与总体流程", "业务规则与关键分支", "接口目录", "接口与实现详解",
+        "数据模型与持久化", "事务、一致性与并发", "依赖、事件与外部副作用",
+        "配置、权限与运行约束",
+    ]
     for path in module_docs:
         text = path.read_text(encoding="utf-8", errors="ignore")
-        for section in required_sections:
-            if section not in text:
+        kind = kinds.get(path.parents[1].name, "general")
+        required = common_sections + (frontend_sections if kind == "frontend" else backend_sections)
+        for section in required:
+            body = section_body(text, section)
+            if not body:
                 errors.append(f"{rel(path, repo)} 缺少章节：{section}")
-        placeholders = text.count("待补充")
-        if placeholders:
-            warnings.append(f"{rel(path, repo)} 仍有 {placeholders} 处待补充")
-        if not re.search(r"`[^`]+[/\\][^`]+`", text):
-            warnings.append(f"{rel(path, repo)} 缺少源码路径证据")
+            elif len(re.sub(r"\s+", "", body)) < 80:
+                warnings.append(f"{rel(path, repo)} 章节内容过浅：{section}")
+        markers = sum(text.count(marker) for marker in template_markers)
+        if markers:
+            warnings.append(f"{rel(path, repo)} 仍有 {markers} 处模板提示或待调查内容")
+        compact_length = len(re.sub(r"\s+", "", text))
+        if compact_length < 2200:
+            warnings.append(f"{rel(path, repo)} 仅 {compact_length} 个非空白字符，难以作为新人开发手册")
+        evidence = re.findall(r"`[^`\n]+[/\\][^`\n]+(?:#[A-Za-z_$][\w$]*)?`", text)
+        if len(set(evidence)) < 5:
+            warnings.append(f"{rel(path, repo)} 源码/测试证据少于 5 个，无法支撑完整业务说明")
+        numbered_steps = re.findall(r"(?m)^\s*\d+[.)、]\s+", text)
+        if len(numbered_steps) < 4:
+            warnings.append(f"{rel(path, repo)} 缺少至少一条可执行的编号业务流程")
+        if kind == "frontend":
+            component_body = section_body(text, "View 与重要组件结构")
+            if "|" not in component_body or ("├" not in component_body and "└" not in component_body and "```mermaid" not in component_body):
+                warnings.append(f"{rel(path, repo)} 缺少组件树或重要组件职责表")
+        else:
+            rules_body = section_body(text, "业务规则与关键分支")
+            if len(re.findall(r"(?m)^\|.*\|$", rules_body)) < 4:
+                warnings.append(f"{rel(path, repo)} 缺少可核验的业务规则/关键分支表")
     for path in [arc / "INDEX.md", *overviews, *module_docs]:
         if not path.exists():
             continue
