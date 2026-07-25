@@ -1,4 +1,4 @@
 interface:
   display_name: "Campus Repo Knowledge"
-  short_description: "生成让新人只读文档即可理解业务并开始开发的深度代码仓知识库"
-  default_prompt: "使用 $campus-repo-knowledge 为当前仓库生成深度分层知识库，让新人仅凭模块开发手册理解业务流程、关键逻辑并开始开发。"
+  short_description: "生成模块独立成册、让新人可直接开发的深度代码仓知识库"
+  default_prompt: "使用 $campus-repo-knowledge 为当前仓库生成分层知识库：每个业务模块独立目录，深入说明业务流程与实现，并在交付前清零所有占位内容。"

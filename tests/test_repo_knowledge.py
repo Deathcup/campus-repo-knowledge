@@ -46,10 +46,10 @@ class RepoKnowledgeTests(unittest.TestCase):
             self.assertTrue((arc / "INDEX.md").exists())
             self.assertTrue((arc / "systems/backend/overview.md").exists())
             self.assertTrue((arc / "systems/frontend/overview.md").exists())
-            backend_modules = list((arc / "systems/backend/modules").glob("*.md"))
+            backend_modules = list((arc / "systems/backend/modules").glob("*/overview.md"))
             self.assertTrue(backend_modules)
-            self.assertFalse(any(p.stem == "test" for p in backend_modules))
-            log_doc = next(p for p in backend_modules if p.stem == "log")
+            self.assertFalse(any(p.parent.name == "test" for p in backend_modules))
+            log_doc = next(p for p in backend_modules if p.parent.name == "log")
             text = log_doc.read_text(encoding="utf-8")
             self.assertIn("## 接口与实现详解", text)
             self.assertIn("## 业务用例与总体流程", text)
@@ -60,7 +60,7 @@ class RepoKnowledgeTests(unittest.TestCase):
             self.assertIn("/eslog/query", text)
             self.assertIn("backend/src/main/java", text)
 
-            frontend_doc = arc / "systems/frontend/modules/log.md"
+            frontend_doc = arc / "systems/frontend/modules/log/overview.md"
             frontend_text = frontend_doc.read_text(encoding="utf-8")
             self.assertIn("## 页面总体流程", frontend_text)
             self.assertIn("## View 与重要组件结构", frontend_text)
@@ -76,14 +76,20 @@ class RepoKnowledgeTests(unittest.TestCase):
             repo = Path(temp)
             self.make_repo(repo)
             rk.command_init(SimpleNamespace(repo=str(repo)))
+            topic = repo / ".repo-knowledge/systems/backend/modules/log/implementation.md"
+            topic.write_text(
+                "# 日志实现\n\n这里专门解释 QuartzNebula 查询构造。\n",
+                encoding="utf-8",
+            )
             output = StringIO()
             with redirect_stdout(output):
-                rk.command_context(SimpleNamespace(repo=str(repo), query="后端日志 eslog/query 接口", limit=2))
+                rk.command_context(SimpleNamespace(repo=str(repo), query="后端日志 QuartzNebula 接口", limit=2))
             lines = output.getvalue().splitlines()
             self.assertIn("1\t根总览", lines[0])
             self.assertTrue(any("2\t子系统总览\t.repo-knowledge/systems/backend/overview.md" in line for line in lines))
-            self.assertTrue(any("3\t模块开发手册\t.repo-knowledge/systems/backend/modules/log.md" in line for line in lines))
-            self.assertIn("4\t源码核验", lines[-1])
+            self.assertTrue(any("3\t模块开发手册\t.repo-knowledge/systems/backend/modules/log/overview.md" in line for line in lines))
+            self.assertTrue(any("4\t模块内专题\t.repo-knowledge/systems/backend/modules/log/implementation.md" in line for line in lines))
+            self.assertIn("5\t源码核验", lines[-1])
 
     def test_scan_does_not_overwrite_human_overviews(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -98,17 +104,34 @@ class RepoKnowledgeTests(unittest.TestCase):
             self.assertEqual("# 人工根总览\n", index.read_text(encoding="utf-8"))
             self.assertEqual("# 人工后端总览\n", overview.read_text(encoding="utf-8"))
 
-    def test_strict_doctor_rejects_unresearched_templates(self):
+    def test_doctor_rejects_unresearched_templates_even_without_strict_flag(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             self.make_repo(repo)
             rk.command_init(SimpleNamespace(repo=str(repo)))
+            nested = repo / ".repo-knowledge/features/example/notes.md"
+            nested.parent.mkdir(parents=True, exist_ok=True)
+            nested.write_text("# 记录\n\nTBD\n", encoding="utf-8")
             output = StringIO()
             with self.assertRaises(SystemExit), redirect_stdout(output):
-                rk.command_doctor(SimpleNamespace(repo=str(repo), strict=True))
+                rk.command_doctor(SimpleNamespace(repo=str(repo), strict=False))
             report = output.getvalue()
-            self.assertIn("模板提示或待调查内容", report)
+            self.assertIn("含禁止残留", report)
+            self.assertIn(".repo-knowledge/features/example/notes.md", report)
             self.assertIn("缺少至少一条可执行的编号业务流程", report)
+
+    def test_upgrade_layout_moves_flat_module_into_own_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            flat = repo / ".repo-knowledge/systems/backend/modules/logs.md"
+            flat.parent.mkdir(parents=True, exist_ok=True)
+            flat.write_text("# 日志模块\n", encoding="utf-8")
+            rk.command_upgrade_layout(SimpleNamespace(repo=str(repo)))
+            self.assertFalse(flat.exists())
+            self.assertEqual(
+                "# 日志模块\n",
+                (repo / ".repo-knowledge/systems/backend/modules/logs/overview.md").read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

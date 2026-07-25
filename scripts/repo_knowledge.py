@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 IGNORE_DIRS = {
     ".git", ".repo-knowledge", "node_modules", "dist", "build", "target",
     ".gradle", ".idea", ".vscode", "__pycache__", "coverage", "vendor",
@@ -264,7 +264,7 @@ def scan_repo(repo: Path) -> dict:
 
 
 def module_doc_path(system_slug: str, module_name: str) -> str:
-    return f"systems/{system_slug}/modules/{slugify(module_name)}.md"
+    return f"systems/{system_slug}/modules/{slugify(module_name)}/overview.md"
 
 
 def root_index(scan: dict, features: list[Path], decisions: list[Path]) -> str:
@@ -323,7 +323,7 @@ def system_overview(system_slug: str, system: dict) -> str:
         route_terms = list(dict.fromkeys(r for item in entries for r in item["routes"]))[:4]
         symbol_terms = list(dict.fromkeys(s for item in entries for s in item["symbols"]))[:5]
         clues = "、".join(route_terms + symbol_terms) or "待源码核对"
-        rows.append(f"| {module} | 待补充一句话职责 | {clues} | [模块文档](modules/{slugify(module)}.md) |")
+        rows.append(f"| {module} | 待补充一句话职责 | {clues} | [模块入口](modules/{slugify(module)}/overview.md) |")
     return f"""# {system['name']}子系统总览
 
 > 本页负责把问题路由到模块，不承载模块实现细节。阅读本页后，只打开命中的模块文档和它链接的源码。
@@ -629,6 +629,24 @@ def refresh_generated(repo: Path, scan: dict) -> None:
     write_text(arc / "inventory" / "schema-version", f"{SCHEMA_VERSION}\n")
 
 
+def migrate_flat_modules(repo: Path) -> tuple[int, list[str]]:
+    """把 v2/v3 的 modules/<模块>.md 安全迁移到 modules/<模块>/overview.md。"""
+    arc = archive_root(repo)
+    moved = 0
+    conflicts: list[str] = []
+    for source in sorted((arc / "systems").glob("*/modules/*.md")):
+        target = source.with_suffix("") / "overview.md"
+        if target.exists():
+            conflicts.append(
+                f"{rel(source, repo)} 与 {rel(target, repo)} 同时存在，需人工合并后删除扁平文件"
+            )
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(target)
+        moved += 1
+    return moved, conflicts
+
+
 def ensure_archive(repo: Path) -> None:
     if not archive_root(repo).exists():
         raise SystemExit("未找到知识库，请先执行 init。")
@@ -653,6 +671,17 @@ def command_scan(args: argparse.Namespace) -> None:
         print("已更新机械地图并补建缺失的导航与模块文档；未覆盖人工内容。")
     else:
         print(render_repo_map(scan))
+
+
+def command_upgrade_layout(args: argparse.Namespace) -> None:
+    repo = repo_root(args.repo)
+    ensure_archive(repo)
+    moved, conflicts = migrate_flat_modules(repo)
+    for conflict in conflicts:
+        print(f"CONFLICT\t{conflict}")
+    if conflicts:
+        raise SystemExit(1)
+    print(f"已迁移 {moved} 个扁平模块文档到独立模块目录；请更新子系统总览链接并运行 doctor。")
 
 
 def command_new_feature(args: argparse.Namespace) -> None:
@@ -746,11 +775,18 @@ def command_context(args: argparse.Namespace) -> None:
     selected = [ranked_systems[0][1]] if ranked_systems else []
     for overview in selected:
         print(f"2\t子系统总览\t{rel(overview, repo)}\t从模块导航匹配职责、接口、路由或检索词")
-        modules = list((overview.parent / "modules").glob("*.md"))
+        modules = list((overview.parent / "modules").glob("*/overview.md"))
         ranked_modules = sorted(((text_score(p, terms), p) for p in modules), key=lambda x: (-x[0], x[1].as_posix()))
         for score, module in ([x for x in ranked_modules if x[0] > 0][: args.limit] or ranked_modules[:1]):
             print(f"3\t模块开发手册\t{rel(module, repo)}\t匹配分 {score}；先理解业务、流程和关键逻辑，再定位代码")
-    print("4\t源码核验\t读取模块手册链接的最少源码与测试\t验证文档仍与当前实现一致")
+            topics = [p for p in module.parent.glob("*.md") if p.name != "overview.md"]
+            ranked_topics = sorted(
+                ((text_score(p, terms), p) for p in topics),
+                key=lambda x: (-x[0], x[1].as_posix()),
+            )
+            for topic_score, topic in ([x for x in ranked_topics if x[0] > 0][: args.limit] or ranked_topics[:1]):
+                print(f"4\t模块内专题\t{rel(topic, repo)}\t匹配分 {topic_score}；读取更具体的业务、实现、接口或开发细节")
+    print("5\t源码核验\t读取模块手册链接的最少源码与测试\t验证文档仍与当前实现一致")
 
 
 def section_body(text: str, heading: str) -> str:
@@ -781,10 +817,26 @@ def command_doctor(args: argparse.Namespace) -> None:
     overviews = list((arc / "systems").glob("*/overview.md"))
     if not overviews:
         errors.append("缺少 systems/<子系统>/overview.md")
-    module_docs = list((arc / "systems").glob("*/modules/*.md"))
+    flat_module_docs = list((arc / "systems").glob("*/modules/*.md"))
+    if flat_module_docs:
+        for path in flat_module_docs:
+            errors.append(f"{rel(path, repo)} 仍是扁平模块文档，必须迁入 <模块>/overview.md")
+    module_docs = list((arc / "systems").glob("*/modules/*/overview.md"))
     if not module_docs:
         errors.append("缺少模块独立文档")
-    template_markers = ["待补充", "待核对", "待调查", "并替换", "<RootView>", "<METHOD>"]
+    topic_docs = [
+        path for path in (arc / "systems").glob("*/modules/*/*.md")
+        if path.name != "overview.md"
+    ]
+    template_markers = [
+        "待补充", "待核对", "待调查", "并替换", "KNOWLEDGE_TODO",
+        "<RootView>", "<METHOD>", "<path>", "TODO", "TBD",
+    ]
+    for path in sorted(arc.rglob("*.md")):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        found = [marker for marker in template_markers if marker in text]
+        if found:
+            errors.append(f"{rel(path, repo)} 含禁止残留：{', '.join(found)}")
     index_path = arc / "INDEX.md"
     if index_path.exists():
         index_text = index_path.read_text(encoding="utf-8", errors="ignore")
@@ -822,7 +874,7 @@ def command_doctor(args: argparse.Namespace) -> None:
     ]
     for path in module_docs:
         text = path.read_text(encoding="utf-8", errors="ignore")
-        kind = kinds.get(path.parents[1].name, "general")
+        kind = kinds.get(path.parents[2].name, "general")
         required = common_sections + (frontend_sections if kind == "frontend" else backend_sections)
         for section in required:
             body = section_body(text, section)
@@ -830,9 +882,6 @@ def command_doctor(args: argparse.Namespace) -> None:
                 errors.append(f"{rel(path, repo)} 缺少章节：{section}")
             elif len(re.sub(r"\s+", "", body)) < 80:
                 warnings.append(f"{rel(path, repo)} 章节内容过浅：{section}")
-        markers = sum(text.count(marker) for marker in template_markers)
-        if markers:
-            warnings.append(f"{rel(path, repo)} 仍有 {markers} 处模板提示或待调查内容")
         compact_length = len(re.sub(r"\s+", "", text))
         if compact_length < 2200:
             warnings.append(f"{rel(path, repo)} 仅 {compact_length} 个非空白字符，难以作为新人开发手册")
@@ -850,7 +899,18 @@ def command_doctor(args: argparse.Namespace) -> None:
             rules_body = section_body(text, "业务规则与关键分支")
             if len(re.findall(r"(?m)^\|.*\|$", rules_body)) < 4:
                 warnings.append(f"{rel(path, repo)} 缺少可核验的业务规则/关键分支表")
-    for path in [arc / "INDEX.md", *overviews, *module_docs]:
+        for topic in path.parent.glob("*.md"):
+            if topic.name != "overview.md" and topic.name not in text:
+                errors.append(f"{rel(path, repo)} 未链接同目录专题：{topic.name}")
+    for path in topic_docs:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        compact_length = len(re.sub(r"\s+", "", text))
+        if compact_length < 800:
+            warnings.append(f"{rel(path, repo)} 专题内容少于 800 个非空白字符")
+        evidence = re.findall(r"`[^`\n]+[/\\][^`\n]+(?:#[A-Za-z_$][\w$]*)?`", text)
+        if len(set(evidence)) < 2:
+            warnings.append(f"{rel(path, repo)} 专题源码/测试证据少于 2 个")
+    for path in sorted(arc.rglob("*.md")):
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -862,7 +922,7 @@ def command_doctor(args: argparse.Namespace) -> None:
         print(f"ERROR\t{item}")
     for item in warnings:
         print(f"WARN\t{item}")
-    if errors or (args.strict and warnings):
+    if errors or warnings:
         raise SystemExit(1)
 
 
@@ -871,11 +931,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init"); init.add_argument("--repo", required=True); init.set_defaults(func=command_init)
     scan = sub.add_parser("scan"); scan.add_argument("--repo", required=True); scan.add_argument("--update", action="store_true"); scan.set_defaults(func=command_scan)
+    upgrade = sub.add_parser("upgrade-layout"); upgrade.add_argument("--repo", required=True); upgrade.set_defaults(func=command_upgrade_layout)
     feature = sub.add_parser("new-feature"); feature.add_argument("--repo", required=True); feature.add_argument("--title", required=True); feature.set_defaults(func=command_new_feature)
     archive = sub.add_parser("archive"); archive.add_argument("--repo", required=True); archive.add_argument("--feature", required=True); archive.add_argument("--summary", required=True); archive.add_argument("--files", default=""); archive.set_defaults(func=command_archive)
     sync = sub.add_parser("sync"); sync.add_argument("--repo", required=True); sync.add_argument("--since"); sync.set_defaults(func=command_sync)
     context = sub.add_parser("context"); context.add_argument("--repo", required=True); context.add_argument("--query", required=True); context.add_argument("--limit", type=int, default=3); context.set_defaults(func=command_context)
-    doctor = sub.add_parser("doctor"); doctor.add_argument("--repo", required=True); doctor.add_argument("--strict", action="store_true"); doctor.set_defaults(func=command_doctor)
+    doctor = sub.add_parser("doctor"); doctor.add_argument("--repo", required=True); doctor.add_argument("--strict", action="store_true", help="兼容参数；v4 始终执行严格检查"); doctor.set_defaults(func=command_doctor)
     return parser
 
 
