@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -29,7 +30,8 @@ class RepoKnowledgeTests(unittest.TestCase):
             "backend/src/test/java/com/acme/log/EsLogServiceTest.java": "class EsLogServiceTest { void queryUsesTenantScope() {} }",
             "frontend/package.json": '{"scripts":{"test":"vitest"}}',
             "frontend/src/api/eslog.ts": "export const queryEsLog = () => client.post('/eslog/query')",
-            "frontend/src/views/log/Search.vue": "<template><main>日志查询</main></template>",
+            "frontend/src/views/log/List.vue": "<template><main>日志列表</main></template>",
+            "frontend/src/views/log/Detail.vue": "<template><main>日志详情</main></template>",
         }
         for relative, content in files.items():
             path = root / relative
@@ -59,6 +61,14 @@ class RepoKnowledgeTests(unittest.TestCase):
             self.assertIn("/eslog", text)
             self.assertIn("/eslog/query", text)
             self.assertIn("backend/src/main/java", text)
+            self.assertIn("[interface-post-eslog-query.md](interface-post-eslog-query.md)", text)
+            self.assertTrue((log_doc.parent / "business-rules.md").exists())
+            self.assertTrue((log_doc.parent / "interface-post-eslog-query.md").exists())
+            self.assertTrue((log_doc.parent / "development.md").exists())
+            interface_text = (log_doc.parent / "interface-post-eslog-query.md").read_text(encoding="utf-8")
+            self.assertIn("## 完整实现链路", interface_text)
+            self.assertIn("## 关键业务逻辑与算法", interface_text)
+            self.assertIn("## 数据读写与副作用", interface_text)
 
             frontend_doc = arc / "systems/frontend/modules/log/overview.md"
             frontend_text = frontend_doc.read_text(encoding="utf-8")
@@ -66,6 +76,11 @@ class RepoKnowledgeTests(unittest.TestCase):
             self.assertIn("## View 与重要组件结构", frontend_text)
             self.assertIn("## 状态、数据与副作用", frontend_text)
             self.assertIn("## 用户交互与关键前端逻辑", frontend_text)
+            self.assertIn("[page-list.md](page-list.md)", frontend_text)
+            self.assertIn("[page-detail.md](page-detail.md)", frontend_text)
+            self.assertTrue((frontend_doc.parent / "page-list.md").exists())
+            self.assertTrue((frontend_doc.parent / "page-detail.md").exists())
+            self.assertTrue((frontend_doc.parent / "components-and-state.md").exists())
 
             navigation = (arc / "inventory/navigation.json").read_text(encoding="utf-8")
             self.assertIn('"kind": "frontend"', navigation)
@@ -76,19 +91,14 @@ class RepoKnowledgeTests(unittest.TestCase):
             repo = Path(temp)
             self.make_repo(repo)
             rk.command_init(SimpleNamespace(repo=str(repo)))
-            topic = repo / ".repo-knowledge/systems/backend/modules/log/implementation.md"
-            topic.write_text(
-                "# 日志实现\n\n这里专门解释 QuartzNebula 查询构造。\n",
-                encoding="utf-8",
-            )
             output = StringIO()
             with redirect_stdout(output):
-                rk.command_context(SimpleNamespace(repo=str(repo), query="后端日志 QuartzNebula 接口", limit=2))
+                rk.command_context(SimpleNamespace(repo=str(repo), query="后端日志 eslog/query 接口", limit=2))
             lines = output.getvalue().splitlines()
             self.assertIn("1\t根总览", lines[0])
             self.assertTrue(any("2\t子系统总览\t.repo-knowledge/systems/backend/overview.md" in line for line in lines))
             self.assertTrue(any("3\t模块开发手册\t.repo-knowledge/systems/backend/modules/log/overview.md" in line for line in lines))
-            self.assertTrue(any("4\t模块内专题\t.repo-knowledge/systems/backend/modules/log/implementation.md" in line for line in lines))
+            self.assertTrue(any("4\t模块内专题\t.repo-knowledge/systems/backend/modules/log/interface-post-eslog-query.md" in line for line in lines))
             self.assertIn("5\t源码核验", lines[-1])
 
     def test_scan_does_not_overwrite_human_overviews(self):
@@ -131,6 +141,56 @@ class RepoKnowledgeTests(unittest.TestCase):
             self.assertEqual(
                 "# 日志模块\n",
                 (repo / ".repo-knowledge/systems/backend/modules/logs/overview.md").read_text(encoding="utf-8"),
+            )
+
+    def test_technical_layer_classes_converge_on_one_business_module(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = [
+                root / "src/main/java/com/acme/mapper/EmployeeMapper.java",
+                root / "src/main/java/com/acme/service/impl/EmployeeServiceImpl.java",
+                root / "src/main/java/com/acme/controller/EmployeeController.java",
+                root / "src/test/java/com/acme/service/EmployeeServiceTest.java",
+            ]
+            self.assertEqual(
+                {"Employee"},
+                {rk.guess_module(path, root) for path in paths},
+            )
+
+    def test_module_map_merges_mechanical_candidates_into_business_capability(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            arc = root / ".repo-knowledge"
+            (arc / "inventory").mkdir(parents=True)
+            scan = {
+                "systems": {
+                    "backend": {
+                        "modules": {
+                            "Employee": [{"path": "EmployeeController.java", "routes": [], "endpoints": []}],
+                            "Employeeec": [{"path": "EmployeeEcController.java", "routes": [], "endpoints": []}],
+                        }
+                    }
+                }
+            }
+            (arc / "inventory/module-map.json").write_text(
+                json.dumps({
+                    "systems": {
+                        "backend": {
+                            "Employee": "employee-lifecycle",
+                            "Employeeec": "employee-lifecycle",
+                        }
+                    }
+                }),
+                encoding="utf-8",
+            )
+            mapped = rk.apply_module_map(scan, arc)
+            self.assertEqual(
+                ["employee-lifecycle"],
+                list(mapped["systems"]["backend"]["modules"]),
+            )
+            self.assertEqual(
+                2,
+                len(mapped["systems"]["backend"]["modules"]["employee-lifecycle"]),
             )
 
 

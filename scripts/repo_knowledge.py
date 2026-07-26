@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 IGNORE_DIRS = {
     ".git", ".repo-knowledge", "node_modules", "dist", "build", "target",
     ".gradle", ".idea", ".vscode", "__pycache__", "coverage", "vendor",
@@ -34,6 +34,11 @@ LAYER_DIRS = {
     "api", "apis", "view", "views", "page", "pages", "component", "components",
     "store", "stores", "composable", "composables", "handler", "handlers", "route", "routes",
 }
+TECHNICAL_SUFFIXES = (
+    "controller", "serviceimpl", "service", "repository", "mapper", "dao",
+    "entity", "model", "api", "view", "page", "component", "store",
+    "handler", "route", "test", "tests",
+)
 
 
 def now_stamp() -> str:
@@ -174,9 +179,19 @@ def guess_module(path: Path, system_root: Path) -> str:
     lowered = [p.lower() for p in dirs]
     for i, part in enumerate(lowered):
         if part in LAYER_DIRS:
-            if i + 1 < len(dirs):
-                return dirs[i + 1]
-            stem = re.sub(r"(?:controller|service|repository|api|view|page)$", "", path.stem, flags=re.I)
+            for candidate in dirs[i + 1:]:
+                if candidate.lower() not in LAYER_DIRS | {"impl", "implementation"}:
+                    return candidate
+            stem = path.stem
+            previous = None
+            while previous != stem:
+                previous = stem
+                stem = re.sub(
+                    rf"(?:{'|'.join(TECHNICAL_SUFFIXES)})$",
+                    "",
+                    stem,
+                    flags=re.I,
+                )
             return stem or part
     # Java 包名前缀通常较深，末级目录比公司域名更接近业务模块。
     if any(marker in path.as_posix() for marker in ("src/main/java/", "src/main/kotlin/", "src/test/java/", "src/test/kotlin/")):
@@ -226,6 +241,42 @@ def extract_routes(path: Path) -> list[str]:
     return list(dict.fromkeys(routes))[:20]
 
 
+def extract_endpoints(path: Path) -> list[str]:
+    """提取带方法的后端/客户端端点，用于区分同一路径上的不同接口。"""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    endpoints: list[str] = []
+    spring_methods = {
+        "GetMapping": "GET",
+        "PostMapping": "POST",
+        "PutMapping": "PUT",
+        "DeleteMapping": "DELETE",
+        "PatchMapping": "PATCH",
+    }
+    bases = re.findall(
+        r"@RequestMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']+)",
+        text,
+    )
+    base = bases[0] if bases else ""
+    for annotation, raw_path in re.findall(
+        r"@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping)"
+        r"(?:\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"'][^)]*\))?",
+        text,
+    ):
+        combined = f"{base.rstrip('/')}/{raw_path.lstrip('/')}" if base else (raw_path or "/")
+        endpoints.append(f"{spring_methods[annotation]} {combined or '/'}")
+    for method, raw_path in re.findall(
+        r"\b(?:router|app|client|http|axios)\.(get|post|put|delete|patch)"
+        r"\s*\(\s*[\"']([^\"']+)",
+        text,
+        flags=re.I,
+    ):
+        endpoints.append(f"{method.upper()} {raw_path}")
+    return list(dict.fromkeys(endpoints))[:30]
+
+
 def scan_repo(repo: Path) -> dict:
     systems: dict[str, dict] = {}
     total = 0
@@ -245,6 +296,7 @@ def scan_repo(repo: Path) -> dict:
                 "path": rel(path, repo),
                 "symbols": extract_symbols(path),
                 "routes": extract_routes(path),
+                "endpoints": extract_endpoints(path),
             })
         systems[system_slug] = {
             "name": display_name,
@@ -263,8 +315,261 @@ def scan_repo(repo: Path) -> dict:
     }
 
 
+def default_module_map(scan: dict) -> dict:
+    return {
+        "_instructions": (
+            "把机械候选名映射为稳定业务模块名；Controller/Service/Mapper、同一业务实体和相邻用例"
+            "应映射到同一名称。scan --update 会按映射合并源码并生成导航。"
+        ),
+        "systems": {
+            system_slug: {module: module for module in system["modules"]}
+            for system_slug, system in scan["systems"].items()
+        },
+    }
+
+
+def apply_module_map(scan: dict, arc: Path) -> dict:
+    path = arc / "inventory" / "module-map.json"
+    try:
+        configured = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        configured = {"systems": {}}
+    for system_slug, system in scan["systems"].items():
+        mappings = configured.get("systems", {}).get(system_slug, {})
+        merged: dict[str, list[dict]] = defaultdict(list)
+        for candidate, entries in system["modules"].items():
+            target = mappings.get(candidate, candidate)
+            if not isinstance(target, str) or not target.strip():
+                target = candidate
+            merged[target.strip()].extend(entries)
+        system["modules"] = dict(sorted(merged.items()))
+    return scan
+
+
 def module_doc_path(system_slug: str, module_name: str) -> str:
     return f"systems/{system_slug}/modules/{slugify(module_name)}/overview.md"
+
+
+def module_dir_path(system_slug: str, module_name: str) -> str:
+    return f"systems/{system_slug}/modules/{slugify(module_name)}"
+
+
+def leaf_routes(entries: list[dict]) -> list[str]:
+    """保留最具体的路由，避免同时为 `/x`、`/query`、`/x/query` 建三份文档。"""
+    routes = list(dict.fromkeys(r for item in entries for r in item["routes"]))
+    absolute = [route for route in routes if route.startswith("/")]
+    leaves = [
+        route for route in absolute
+        if not any(
+            other != route and other.startswith(route.rstrip("/") + "/")
+            for other in absolute
+        )
+    ]
+    return leaves or routes
+
+
+def backend_entrypoints(entries: list[dict]) -> list[str]:
+    endpoints = list(dict.fromkeys(
+        endpoint
+        for item in entries
+        for endpoint in item.get("endpoints", [])
+    ))
+    return endpoints or leaf_routes(entries)
+
+
+def topic_filename(prefix: str, value: str, used: set[str]) -> str:
+    base = slugify(value).strip("-") or "root"
+    candidate = f"{prefix}-{base}.md"
+    index = 2
+    while candidate in used:
+        candidate = f"{prefix}-{base}-{index}.md"
+        index += 1
+    used.add(candidate)
+    return candidate
+
+
+def backend_interface_template(module: str, route: str, entries: list[dict]) -> str:
+    evidence = "\n".join(
+        f"- `{item['path']}`：检查 `{route}` 的入口、调用链和测试。"
+        for item in entries
+        if route in item.get("endpoints", []) or route in item["routes"]
+    ) or "\n".join(f"- `{item['path']}`" for item in entries[:8])
+    return f"""# {module}：`{route}` 实现详解
+
+> 本文只负责这一个接口或入口的真实实现。读完应能解释它为何存在、每一步怎样执行、失败时留下什么结果，以及修改它需要同步哪些代码与测试。
+
+## 业务场景与调用方
+
+说明谁在什么业务流程中调用 `{route}`、调用前必须具备的状态，以及成功和失败分别对调用方意味着什么。
+
+## 请求、响应与业务语义
+
+| 字段/载体 | 来源与类型 | 业务含义 | 默认值/单位/时区/枚举 | 校验与字段联动 | 进入哪一步 |
+| --- | --- | --- | --- | --- | --- |
+| 逐字段填写 | path/query/header/body/file | 不复制类型，要解释业务语义 | 写清缺省与兼容规则 | 写清跨字段条件 | 链接实现步骤 |
+
+响应也逐字段说明业务结果、错误语义和调用方如何消费。没有请求体、响应体或某类字段时，在表中写“无”并给入口证据，不能省略本节。
+
+## 鉴权、数据范围与前置校验
+
+说明认证入口、角色/租户/组织/所有权限制、参数规范化和校验顺序；指出失败发生在调用链哪一步。
+
+## 完整实现链路
+
+用 5–12 个编号步骤从 Controller/Handler 追到业务服务、领域规则、数据访问或外部系统。每一步写清“输入状态 → 判断/转换/查询 → 输出状态 → 代码符号”。
+
+## 关键业务逻辑与算法
+
+解释条件构造、计算、聚合、匹配、排序、分页、映射或状态转换。给出必要伪代码和关键分支原因，不粘贴大段源码。
+
+## 数据读写与副作用
+
+列出读取和写入的表、索引、缓存、事件、文件或第三方服务；说明顺序、字段变化和用户可见结果。
+
+## 事务、并发、幂等与失败恢复
+
+说明事务边界、锁/版本/幂等键、重试或补偿。若当前没有保护，说明证据、可能竞态和开发影响。
+
+## 异常、错误码与可观测性
+
+按触发条件列出异常转换、HTTP/业务错误、日志、指标、trace 和审计点，并说明敏感信息约束。
+
+## 测试与修改指南
+
+列出覆盖正常、权限、边界、并发和依赖失败的测试；说明增加相邻参数、规则或副作用时要修改的具体文件类别和契约。
+
+## 源码与测试证据
+
+{evidence}
+"""
+
+
+def frontend_page_template(module: str, page_path: str, entries: list[dict]) -> str:
+    page_name = Path(page_path).stem
+    return f"""# {module}：{page_name} 页面实现详解
+
+> 本文负责 `{page_path}` 对应页面或 View 的完整实现。读完应能从用户动作追踪到组件、状态、接口和反馈，并能安全增加相邻功能。
+
+## 页面业务目标与用户
+
+说明页面服务的角色、解决的业务问题、进入前置条件，以及它与列表、详情、编辑或其他页面的衔接。
+
+## 路由、入口与离开行为
+
+说明菜单/父页面入口、路由参数、守卫、权限、重定向、直接访问、返回和卸载清理。
+
+## View 编排与重要组件树
+
+画出根 View 到重要业务组件的树，并填写职责表：
+
+| View/组件 | 用户能力 | 父子契约 | 状态所有者 | API/路由/弹窗副作用 | 代码证据 |
+| --- | --- | --- | --- | --- | --- |
+| 逐个重要组件填写 | 用户能完成什么 | props/emits/slots/context | local/store/composable | 触发与反馈 | `文件#符号` |
+
+## 首屏初始化流程
+
+用编号步骤说明参数读取、默认状态、并行/串行请求、响应转换、首屏渲染，以及加载、空数据、无权限和请求失败。
+
+## 用户操作与功能点
+
+按筛选、分页、查看、编辑、提交、删除、导出等真实动作分别追踪：控件 → 处理函数 → 校验 → 状态 → API → 成功/失败反馈。
+
+## 状态、计算属性与生命周期
+
+说明 local/store/composable/query 状态的所有者、更新者、消费者、缓存/失效、watch/effect、竞态、取消、防抖和卸载清理。
+
+## API 协作与数据转换
+
+| 用户动作/初始化 | API | 请求组装 | 响应转换与状态落点 | 失败反馈 | 后端实现 |
+| --- | --- | --- | --- | --- | --- |
+| 逐接口填写 | 方法与路径 | 默认值、枚举、时间、分页 | DTO→ViewModel/store | 保留/回滚/重试 | 同仓时链接接口文档 |
+
+没有 API 的静态页面也要在表中写明“当前无 API”，并链接证明页面没有请求的源码。
+
+## 展示规则与边界场景
+
+列出显示/隐藏、启用/禁用、可编辑、字段联动、排序格式化、重复提交、乐观更新/回滚和兼容行为的触发条件。
+
+## 测试与修改指南
+
+列出组件、store、API mock 和 E2E 覆盖；以增加一个相邻操作或字段为例，说明要修改的 View、组件、状态、类型、接口和测试。
+
+## 源码与测试证据
+
+- `{page_path}`：根 View 或页面入口。
+{chr(10).join(f"- `{item['path']}`" for item in entries[:12] if item['path'] != page_path)}
+"""
+
+
+def detail_topic_specs(system: dict, module: str, entries: list[dict]) -> list[tuple[str, str, str]]:
+    """返回 (文件名, 导航说明, 骨架内容)，确保模块必有可渐进加载的实现层。"""
+    kind = system.get("kind", "general")
+    used: set[str] = set()
+    topics: list[tuple[str, str, str]] = []
+    if kind == "backend":
+        topics.append((
+            "business-rules.md",
+            "业务用例、规则、状态机和跨接口共性",
+            backend_interface_template(module, "跨接口业务规则", entries),
+        ))
+        for route in backend_entrypoints(entries):
+            filename = topic_filename("interface", route, used)
+            topics.append((filename, f"`{route}` 的逐步实现、数据与失败路径", backend_interface_template(module, route, entries)))
+        if len(topics) == 1:
+            topics.append((
+                "use-cases.md",
+                "非 HTTP 用例、任务、消费者或公开函数的实现",
+                backend_interface_template(module, "核心业务用例", entries),
+            ))
+    elif kind == "frontend":
+        page_entries = [
+            item for item in entries
+            if Path(item["path"]).suffix.lower() in {".vue", ".tsx", ".jsx"}
+            or any(part in {"view", "views", "page", "pages"} for part in Path(item["path"]).parts)
+        ]
+        for item in page_entries:
+            filename = topic_filename("page", Path(item["path"]).stem, used)
+            topics.append((
+                filename,
+                f"`{item['path']}` 页面流程、组件、状态和 API 实现",
+                frontend_page_template(module, item["path"], entries),
+            ))
+        if not topics:
+            topics.append((
+                "page-main.md",
+                "模块主页面或入口功能的完整前端实现",
+                frontend_page_template(module, entries[0]["path"] if entries else "主页面", entries),
+            ))
+        topics.append((
+            "components-and-state.md",
+            "跨页面组件契约、共享状态、composable/store 与 API 协作",
+            frontend_page_template(module, "共享组件与状态", entries),
+        ))
+    else:
+        topics.append((
+            "capabilities.md",
+            "公开能力、调用链、数据和边界的详细实现",
+            backend_interface_template(module, "核心能力", entries),
+        ))
+    topics.append((
+        "development.md",
+        "新增功能、兼容性、测试、运行和排障",
+        backend_interface_template(module, "开发与验证", entries)
+        if kind != "frontend" else frontend_page_template(module, "开发与验证", entries),
+    ))
+    return topics
+
+
+def detail_navigation(topics: list[tuple[str, str, str]]) -> str:
+    rows = "\n".join(f"| [{name}]({name}) | {purpose} |" for name, purpose, _ in topics)
+    return f"""## 实现细节导航
+
+> 先按问题选择下表中的最小文档，不要为了查询一个接口或页面加载整个模块。每个页面、接口或核心功能点都必须拥有自己的实现文档。
+
+| 文档 | 何时读取 |
+| --- | --- |
+{rows}
+"""
 
 
 def root_index(scan: dict, features: list[Path], decisions: list[Path]) -> str:
@@ -363,14 +668,16 @@ def system_overview(system_slug: str, system: dict) -> str:
 """
 
 
-def common_module_header(system: dict, module: str) -> str:
+def common_module_header(system: dict, module: str, topics: list[tuple[str, str, str]]) -> str:
     return f"""# {module}模块开发手册
 
 > 所属子系统：{system['name']}。目标读者是只熟悉编程语言、第一次接触本服务的开发者。本文完成后，读者应能理解业务、解释主要流程、定位关键实现，并安全地开始开发。
 
 ## 阅读地图
 
-用 5–10 行说明建议阅读顺序：先理解哪个业务场景，再看哪条流程、哪些组件或服务、哪些数据与规则，最后如何运行和验证。
+用 5–10 行说明建议阅读顺序：先在本页理解模块边界和总体流程，再按接口、页面或功能点进入实现细节文档，最后如何运行和验证。
+
+{detail_navigation(topics)}
 
 ## 业务背景与用户价值
 
@@ -392,11 +699,11 @@ def common_module_header(system: dict, module: str) -> str:
 """
 
 
-def frontend_module_template(system: dict, module: str, entries: list[dict]) -> str:
+def frontend_module_template(system: dict, module: str, entries: list[dict], topics: list[tuple[str, str, str]]) -> str:
     files = "\n".join(f"- `{item['path']}`" for item in entries[:40]) or "- 待补充"
     found_routes = list(dict.fromkeys(r for item in entries for r in item["routes"]))
     route_rows = "\n".join(f"| `{route}` | 触发场景待调查 | 页面/View 待调查 | 权限/参数待调查 |" for route in found_routes) or "| 路由待调查 | 触发场景待调查 | 页面/View 待调查 | 权限/参数待调查 |"
-    return common_module_header(system, module) + f"""
+    return common_module_header(system, module, topics) + f"""
 
 ## 页面入口、路由与访问条件
 
@@ -485,11 +792,11 @@ def frontend_module_template(system: dict, module: str, entries: list[dict]) -> 
 """
 
 
-def backend_module_template(system: dict, module: str, entries: list[dict]) -> str:
+def backend_module_template(system: dict, module: str, entries: list[dict], topics: list[tuple[str, str, str]]) -> str:
     files = "\n".join(f"- `{item['path']}`" for item in entries[:40]) or "- 待调查"
     found_routes = list(dict.fromkeys(r for item in entries for r in item["routes"]))
     route_rows = "\n".join(f"| `{route}` | 业务用途待调查 | 入口待调查 | 核心用例待调查 |" for route in found_routes) or "| 接口待调查 | 业务用途待调查 | 入口待调查 | 核心用例待调查 |"
-    return common_module_header(system, module) + f"""
+    return common_module_header(system, module, topics) + f"""
 
 ## 业务用例与总体流程
 
@@ -584,10 +891,10 @@ def backend_module_template(system: dict, module: str, entries: list[dict]) -> s
 """
 
 
-def module_template(system: dict, module: str, entries: list[dict]) -> str:
+def module_template(system: dict, module: str, entries: list[dict], topics: list[tuple[str, str, str]]) -> str:
     if system.get("kind") == "frontend":
-        return frontend_module_template(system, module, entries)
-    return backend_module_template(system, module, entries)
+        return frontend_module_template(system, module, entries, topics)
+    return backend_module_template(system, module, entries, topics)
 
 
 def render_repo_map(scan: dict) -> str:
@@ -621,7 +928,14 @@ def refresh_generated(repo: Path, scan: dict) -> None:
     for system_slug, system in scan["systems"].items():
         write_if_missing(arc / "systems" / system_slug / "overview.md", system_overview(system_slug, system))
         for module, entries in system["modules"].items():
-            write_if_missing(arc / module_doc_path(system_slug, module), module_template(system, module, entries))
+            topics = detail_topic_specs(system, module, entries)
+            module_dir = arc / module_dir_path(system_slug, module)
+            write_if_missing(
+                arc / module_doc_path(system_slug, module),
+                module_template(system, module, entries, topics),
+            )
+            for filename, _, content in topics:
+                write_if_missing(module_dir / filename, content)
     features = [p for p in (arc / "features").glob("*") if p.is_dir()]
     decisions = list((arc / "decisions").glob("*.md"))
     # 总览包含人工维护的职责与路由，机械刷新绝不能覆盖它。
@@ -658,6 +972,11 @@ def command_init(args: argparse.Namespace) -> None:
     for child in ["inventory", "systems", "features", "decisions", "inbox"]:
         (arc / child).mkdir(parents=True, exist_ok=True)
     scan = scan_repo(repo)
+    write_if_missing(
+        arc / "inventory" / "module-map.json",
+        json.dumps(default_module_map(scan), indent=2, ensure_ascii=False) + "\n",
+    )
+    scan = apply_module_map(scan, arc)
     refresh_generated(repo, scan)
     print(f"已在 {arc} 初始化 v{SCHEMA_VERSION} 分层知识库；骨架仍需 Agent 核对源码并补全。")
 
@@ -666,6 +985,7 @@ def command_scan(args: argparse.Namespace) -> None:
     repo = repo_root(args.repo)
     ensure_archive(repo)
     scan = scan_repo(repo)
+    scan = apply_module_map(scan, archive_root(repo))
     if args.update:
         refresh_generated(repo, scan)
         print("已更新机械地图并补建缺失的导航与模块文档；未覆盖人工内容。")
@@ -859,8 +1179,29 @@ def command_doctor(args: argparse.Namespace) -> None:
         if any(marker in overview_text for marker in template_markers):
             warnings.append(f"{rel(overview, repo)} 仍有模板提示或未完成内容")
     kinds = system_kinds(arc)
+    navigation_path = arc / "inventory" / "navigation.json"
+    try:
+        navigation = json.loads(navigation_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        navigation = {"systems": {}}
+    expected_module_dirs = {
+        (system_slug, slugify(module_name))
+        for system_slug, system in navigation.get("systems", {}).items()
+        for module_name in system.get("modules", {})
+    }
+    actual_module_dirs = {
+        (path.parents[2].name, path.parent.name)
+        for path in module_docs
+    }
+    for system_slug, module_slug in sorted(expected_module_dirs - actual_module_dirs):
+        errors.append(f"机械导航中的业务模块缺少文档：systems/{system_slug}/modules/{module_slug}/overview.md")
+    for system_slug, module_slug in sorted(actual_module_dirs - expected_module_dirs):
+        errors.append(
+            f"systems/{system_slug}/modules/{module_slug} 是未纳入 module-map/navigation 的孤立模块；"
+            "请迁移内容后移除或修正映射"
+        )
     common_sections = [
-        "阅读地图", "业务背景与用户价值", "业务术语与核心概念",
+        "阅读地图", "实现细节导航", "业务背景与用户价值", "业务术语与核心概念",
         "角色、权限与职责边界", "开发指南", "构建、测试与排障",
     ]
     frontend_sections = [
@@ -899,17 +1240,84 @@ def command_doctor(args: argparse.Namespace) -> None:
             rules_body = section_body(text, "业务规则与关键分支")
             if len(re.findall(r"(?m)^\|.*\|$", rules_body)) < 4:
                 warnings.append(f"{rel(path, repo)} 缺少可核验的业务规则/关键分支表")
-        for topic in path.parent.glob("*.md"):
+        module_topics = [topic for topic in path.parent.glob("*.md") if topic.name != "overview.md"]
+        if len(module_topics) < 2:
+            errors.append(f"{rel(path.parent, repo)} 只有 overview 或细节文档不足；每个模块至少需要 2 份实现细节文档")
+        for topic in module_topics:
             if topic.name != "overview.md" and topic.name not in text:
                 errors.append(f"{rel(path, repo)} 未链接同目录专题：{topic.name}")
+        system_slug = path.parents[2].name
+        module_slug = path.parent.name
+        system_data = navigation.get("systems", {}).get(system_slug, {})
+        module_entries = next(
+            (
+                entries for module_name, entries in system_data.get("modules", {}).items()
+                if slugify(module_name) == module_slug
+            ),
+            [],
+        )
+        if kind == "backend":
+            for route in backend_entrypoints(module_entries):
+                if not any(route in topic.read_text(encoding="utf-8", errors="ignore") for topic in module_topics):
+                    errors.append(f"{rel(path.parent, repo)} 缺少接口 `{route}` 的独立实现文档")
+        elif kind == "frontend":
+            page_paths = [
+                item["path"] for item in module_entries
+                if Path(item["path"]).suffix.lower() in {".vue", ".tsx", ".jsx"}
+                or any(part in {"view", "views", "page", "pages"} for part in Path(item["path"]).parts)
+            ]
+            for page_path in page_paths:
+                if not any(page_path in topic.read_text(encoding="utf-8", errors="ignore") for topic in module_topics):
+                    errors.append(f"{rel(path.parent, repo)} 缺少页面 `{page_path}` 的独立实现文档")
     for path in topic_docs:
         text = path.read_text(encoding="utf-8", errors="ignore")
         compact_length = len(re.sub(r"\s+", "", text))
-        if compact_length < 800:
-            warnings.append(f"{rel(path, repo)} 专题内容少于 800 个非空白字符")
+        if compact_length < 1200:
+            warnings.append(f"{rel(path, repo)} 实现细节文档少于 1200 个非空白字符")
         evidence = re.findall(r"`[^`\n]+[/\\][^`\n]+(?:#[A-Za-z_$][\w$]*)?`", text)
-        if len(set(evidence)) < 2:
-            warnings.append(f"{rel(path, repo)} 专题源码/测试证据少于 2 个")
+        if len(set(evidence)) < 3:
+            warnings.append(f"{rel(path, repo)} 实现细节文档源码/测试证据少于 3 个")
+        if path.name.startswith(("interface-", "use-cases", "business-rules")):
+            for section in [
+                "业务场景与调用方", "请求、响应与业务语义", "完整实现链路",
+                "关键业务逻辑与算法", "数据读写与副作用", "异常、错误码与可观测性",
+                "测试与修改指南",
+            ]:
+                body = section_body(text, section)
+                if not body:
+                    errors.append(f"{rel(path, repo)} 缺少后端实现章节：{section}")
+                elif len(re.sub(r"\s+", "", body)) < 100:
+                    warnings.append(f"{rel(path, repo)} 后端实现章节过浅：{section}")
+            if len(re.findall(r"(?m)^\s*\d+[.)、]\s+", text)) < 5:
+                warnings.append(f"{rel(path, repo)} 完整实现链路少于 5 个可执行步骤")
+            request_body = section_body(text, "请求、响应与业务语义")
+            if len(re.findall(r"(?m)^\|.*\|$", request_body)) < 3:
+                warnings.append(f"{rel(path, repo)} 缺少逐字段请求/响应业务语义表")
+            chain_body = section_body(text, "完整实现链路")
+            symbol_anchors = re.findall(r"`[^`\n]+[/\\][^`\n]+#[A-Za-z_$][\w$]*`", chain_body)
+            if len(set(symbol_anchors)) < 2:
+                warnings.append(f"{rel(path, repo)} 实现链路中少于 2 个文件#符号锚点")
+        if path.name.startswith(("page-", "components-and-state")):
+            for section in [
+                "页面业务目标与用户", "View 编排与重要组件树", "首屏初始化流程",
+                "用户操作与功能点", "状态、计算属性与生命周期",
+                "API 协作与数据转换", "展示规则与边界场景", "测试与修改指南",
+            ]:
+                body = section_body(text, section)
+                if not body:
+                    errors.append(f"{rel(path, repo)} 缺少前端页面实现章节：{section}")
+                elif len(re.sub(r"\s+", "", body)) < 100:
+                    warnings.append(f"{rel(path, repo)} 前端页面实现章节过浅：{section}")
+            component_body = section_body(text, "View 编排与重要组件树")
+            if "├" not in component_body and "└" not in component_body and "```mermaid" not in component_body:
+                warnings.append(f"{rel(path, repo)} 缺少页面组件树")
+            if len(re.findall(r"(?m)^\|.*\|$", component_body)) < 3:
+                warnings.append(f"{rel(path, repo)} 缺少重要组件职责与契约表")
+            api_body = section_body(text, "API 协作与数据转换")
+            if len(re.findall(r"(?m)^\|.*\|$", api_body)) < 3:
+                warnings.append(f"{rel(path, repo)} 缺少逐接口前端协作与数据转换表")
+            if len(re.findall(r"(?m)^\s*\d+[.)、]\s+", text)) < 4:
+                warnings.append(f"{rel(path, repo)} 页面流程少于 4 个可执行步骤")
     for path in sorted(arc.rglob("*.md")):
         if not path.exists():
             continue
@@ -936,7 +1344,7 @@ def build_parser() -> argparse.ArgumentParser:
     archive = sub.add_parser("archive"); archive.add_argument("--repo", required=True); archive.add_argument("--feature", required=True); archive.add_argument("--summary", required=True); archive.add_argument("--files", default=""); archive.set_defaults(func=command_archive)
     sync = sub.add_parser("sync"); sync.add_argument("--repo", required=True); sync.add_argument("--since"); sync.set_defaults(func=command_sync)
     context = sub.add_parser("context"); context.add_argument("--repo", required=True); context.add_argument("--query", required=True); context.add_argument("--limit", type=int, default=3); context.set_defaults(func=command_context)
-    doctor = sub.add_parser("doctor"); doctor.add_argument("--repo", required=True); doctor.add_argument("--strict", action="store_true", help="兼容参数；v4 始终执行严格检查"); doctor.set_defaults(func=command_doctor)
+    doctor = sub.add_parser("doctor"); doctor.add_argument("--repo", required=True); doctor.add_argument("--strict", action="store_true", help="兼容参数；v5 始终执行严格检查"); doctor.set_defaults(func=command_doctor)
     return parser
 
 

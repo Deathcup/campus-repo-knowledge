@@ -11,10 +11,10 @@
       modules/
         logs/
           overview.md
-          business.md          # 大模块按需增加
-          implementation.md    # 大模块按需增加
-          interfaces.md        # 大模块按需增加
-          development.md       # 大模块按需增加
+          business-rules.md
+          interface-query.md
+          interface-export.md
+          development.md
         users/
           overview.md
     frontend/
@@ -22,6 +22,10 @@
       modules/
         log-search/
           overview.md
+          page-list.md
+          page-detail.md
+          components-and-state.md
+          development.md
   features/
     YYYY-MM-DD-需求名/
       request.md
@@ -33,6 +37,7 @@
   inventory/
     repo-map.md
     navigation.json
+    module-map.json
     schema-version
   inbox/
     sync-YYYY-MM-DD-HHMMSS.md
@@ -69,17 +74,19 @@
 
 ### `systems/<子系统>/modules/<模块>/`：模块独立目录
 
-一个稳定业务能力一个目录，禁止将 `logs.md`、`users.md` 等平铺在 `modules/` 下。每个模块目录必须有 `overview.md`，它既是模块入口，也是能够独立完成新人上手的开发手册。
+一个稳定业务能力一个目录，禁止将 `logs.md`、`users.md` 等平铺在 `modules/` 下。每个模块目录至少有三份 Markdown：`overview.md` 和两份以上实现细节文档。只有 overview 的模块永远不能验收。
 
-当一个模块需要更细的渐进加载时，可在同一目录增加：
+模块内按可独立查询和修改的能力拆分：
 
-- `business.md`：业务背景、角色、术语、用例、流程、规则与边界；
-- `implementation.md`：前端组件/状态/交互，或后端业务逻辑/数据/事务/副作用；
-- `interfaces.md`：逐接口、事件、任务或公开函数的契约与实现；
-- `development.md`：扩展步骤、兼容性、测试、排障和风险；
-- 其他以稳定主题命名的 Markdown。
+- `overview.md`：模块边界、总体业务流程、规则摘要和实现细节导航；
+- `interface-<能力>.md`：单个后端接口的契约与完整实现；
+- `use-case-<能力>.md`：事件、任务、CLI、公开函数或跨接口业务用例；
+- `page-<页面>.md`：单个前端列表、详情、编辑或业务 View 的完整实现；
+- `feature-<功能>.md`：不依附独立页面/接口但可独立理解和修改的功能点；
+- `components-and-state.md`：跨页面重要组件、共享状态与 composable/store；
+- `business-rules.md`、`development.md`：跨入口规则和开发验证。
 
-`overview.md` 必须概述并链接这些专题；专题不得散落到模块目录外。小模块可只使用完整的 `overview.md`，但仍必须有独立目录。
+`overview.md` 必须逐项链接所有同目录文档，并说明每份文档解决什么问题。后端每个重要接口/消费者/任务/公开用例、前端每个用户可达页面或独立业务 View，都必须有唯一实现文档。HTTP 入口以“方法 + 完整路径”为唯一键，同一路径上的不同方法分别建文档。相似 CRUD 只能复用公共章节，不能因此省略不同接口或页面的规则、数据变化和失败路径。
 
 通用部分必须包含阅读地图、业务背景与用户价值、业务术语、角色/权限/职责边界、开发指南、构建测试排障、证据和具体待确认项。
 
@@ -107,6 +114,8 @@
 
 接口实现链路至少精确到 `入口文件#符号 → 业务实现文件#符号 → 领域规则#符号 → 数据访问/外部调用文件#符号`。不能只列 Controller 文件，也不能用“Service 处理逻辑”跳过关键判断、查询和数据变化。
 
+每份后端接口/用例文档必须覆盖业务场景、逐字段业务语义表、鉴权与校验、5–12 步实现链路、至少两个 `文件#符号` 锚点、关键算法或查询、数据读写、副作用、事务并发、异常观测、测试与修改指南。每份前端页面文档必须覆盖业务目标、路由、组件树、重要组件职责/契约表、首屏初始化、逐用户动作、状态生命周期、逐接口协作/转换表、展示规则、测试与修改指南。
+
 ## 模块划分规则
 
 - 首选业务能力和稳定职责，如“日志查询”“账号权限”“订单结算”。
@@ -115,6 +124,8 @@
 - 前端和后端各自建模块文档，通过 API 契约互链，不合并成一份超长文档。
 - 公共基础设施只有在确实具有独立契约和维护方式时作为模块，如“认证中间件”“消息总线”。
 - 过大模块按可独立理解和变更的业务子能力拆分；过小模块合并到最接近的稳定能力。
+
+`inventory/module-map.json` 是机械候选到业务模块的稳定映射。初始化后必须检查它：把同一能力的 Controller、Service、Mapper、实体和页面/API 候选映射到同一个业务名称，再运行 `scan --update`。新增源码候选未出现在映射中时会暂以原名出现，交付前必须决定归属。`doctor` 会拒绝导航缺失模块和已经不在映射中的孤立模块目录。
 
 ## 其他目录
 
@@ -127,7 +138,7 @@
 
 旧版 `project.md` 内容按层级迁往根总览或对应子系统总览；旧版模块内容按职责迁往独立模块目录。迁移期间可保留旧文件，但 `INDEX.md` 只链接新版路径。确认所有持久结论已迁移且无外部引用后再删除旧文件。
 
-`schema-version` 为 2 的知识库需要补齐深度内容。版本 3 的 `systems/<子系统>/modules/<模块>.md` 必须通过 `upgrade-layout` 迁移为 `systems/<子系统>/modules/<模块>/overview.md`，再修复总览链接。不得只改版本号。
+`schema-version` 为 2 的知识库需要补齐深度内容。版本 3 的扁平模块先通过 `upgrade-layout` 迁移。版本 4 的模块虽然已有独立目录，但通常只有 `overview.md`；升级到 5 时运行 `scan --update` 建立细节骨架，再按源码调查补齐逐接口、逐页面和逐功能点文档及 overview 链接。不得只改版本号。
 
 ## 验收
 
@@ -137,4 +148,4 @@
 python <skill>/scripts/repo_knowledge.py doctor --repo <repo> --strict
 ```
 
-机械检查无“宽松模式”：任何错误或警告都会失败。它会扫描知识库内全部 Markdown，拦截扁平模块、`待补充`/`待调查`/`TODO` 等残留、短文档、浅章节、无流程、前端无组件树、后端无规则表和证据不足。通过后仍须做新人上手抽查：不打开源码，能否只凭文档解释业务价值、完整成功/失败流程、关键规则、组件/服务协作，以及如何增加一个相邻能力并验证。
+机械检查无“宽松模式”：任何错误或警告都会失败。它会扫描全部 Markdown，拦截只有 overview 的模块、未链接细节、遗漏接口/页面、短实现文档、浅章节、无步骤链路、前端无组件树、证据不足和占位残留。通过后仍须抽查：从 overview 选择一个接口或页面，只读取它链接的细节文档，能否解释完整实现并规划一个相邻改动。
