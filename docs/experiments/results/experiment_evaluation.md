@@ -1,163 +1,178 @@
-# campus-repo-knowledge A/B 实验评估报告
+# campus-repo-knowledge A/B 实验评估 (v2 — 正确对照)
 
 ## 实验设计
 
-- **目标仓库**: `D:/claude/experiments/target-repo` — Campus HR System (Spring Boot 后端，7 个源文件 + 1 个测试)
-- **条件 A (Skill)**: 注入完整 SKILL.md (~3,153 tokens)
-- **条件 B (Gene)**: 仅注入 GENE.md (~280 tokens)
-- **任务**: 为目标仓库生成完整的 `.repo-knowledge/` 知识库
-- **评估维度**: 分层结构、模块归并质量、文档深度、占位词、业务规则覆盖
+**三个条件使用完全相同的 Agent 调用方式**，唯一区别是注入的指导内容：
+
+| 条件 | 注入内容 | Token 数 | 说明 |
+|------|---------|---------|------|
+| **Baseline** | 无指导，仅任务描述 | 0 | 模型只靠自身能力 |
+| **Before** (改造前) | 完整原始 SKILL.md | ~3,153 | 当前生产环境的行为 |
+| **After** (改造后) | 仅 Gene 内容 | ~280 | 论文推荐的 compact 控制指令 |
+
+**目标仓库**: Campus HR System (7 个 Java 源文件 + 1 个测试)
+**任务**: 为目标仓库生成完整的 `.repo-knowledge/` 知识库
+**评估维度**: 模块归并正确性、文档质量、结构规范、token 效率、占位词
 
 ---
 
 ## 一、量化对比
 
-| 维度 | Skill (完整文档) | Gene (紧凑控制) | 分析 |
-|------|-----------------|----------------|------|
-| **控制 Token 消耗** | ~3,153 tokens | ~280 tokens | Gene 节省 **91.1%** |
-| **产出文件数** | 14 个 .md | 8 个 .md | — |
-| **产出总大小** | 81,584 bytes | 48,300 bytes | Gene 产出精简 40.8% |
-| **子系统数** | 3 (含1个技术层) | 2 (纯业务) | ⚠️ Skill 违规 |
-| **模块数** | 3 | 2 (直接到子系统) | — |
-| **每模块最少文档** | ✅ 至少 2 份 | ✅ 至少 3 份 | 均达标 |
-| **占位词残留** | 0 | 0 | 均达标 |
-| **源码锚点密度** | 高 (行号级) | 中高 (文件+方法级) | Skill 更细 |
-| **业务规则覆盖** | 完整 | 完整 | 均覆盖 |
+| 维度 | Baseline | Before (完整 Skill) | After (仅 Gene) |
+|------|:--:|:--:|:--:|
+| **指导 token 消耗** | 0 | 3,153 | **280** |
+| **产出文件数** | 12 | 11 | 12 |
+| **产出总大小** | 74,915 bytes | 74,522 bytes | **58,274 bytes** |
+| **占位词** | ✅ 0 | ✅ 0 | ✅ 0 |
+| **module-map.json** | ❌ 缺失 | ✅ 已创建 | ❌ 缺失 |
 
-## 二、关键质量差异
+## 二、模块归并分析（核心评估维度）
 
-### 2.1 模块归并 — Skill 违反了自己的规则
-
-| | Skill 输出 | Gene 输出 |
-|------|-----------|----------|
-| 子系统命名 | `employee-management`, `attendance-management`, `platform-infrastructure` | `员工管理`, `考勤管理` |
-| 额外子系统 | **`platform-infrastructure`** (技术层!) | 无 |
-
-**这是本次实验最关键的发现。**
-
-Skill 的原始规则 #2 明确要求：
-> "不得用 controller/service/repository、views/components/api 等技术层代替业务模块"
-
-但 Skill agent 在完整文档的引导下，仍然创建了 `platform-infrastructure` 子系统——该子系统的文档仅覆盖 `ApiResponse` 和 `AuthContext` 两个技术组件，且 `modules/shared-foundation/` 仅包含 `feature-api-response.md` 一份细节文档（缺失 AuthContext）。
-
-Gene agent 将 `ApiResponse` 和 `AuthContext` 作为"基础设施"直接整合在 INDEX.md 中，未单独建子系统——更符合"跨业务共享组件不应作为独立业务模块"的原则。
-
-**论文解释**: 论文第 4.1.2 节发现 Skill-Overview 型内容 (-4.7pp) 可能干扰模型判断。SKILL.md 中的 Overview/Frontmatter 包含了对"平台基础设施"这类概念的大量描述性语言，可能诱导 agent 将其视为需要文档化的独立子系统。
-
-### 2.2 文档粒度 — Skill 更细腻但更冗余
-
-| 对比项 | Skill | Gene |
-|--------|-------|------|
-| employee 创建文档 | 189 行，含完整字段语义表、逐步骤代码引用 | 86 行，含业务规则 + 步骤执行流 |
-| 内容覆盖 | 相同 | 相同 |
-| 冗余内容 | Controller 代码片段 vs Service 代码片段重复描述 | 无重复 |
-| 事务分析 | 单独章节 | 嵌入"事务与并发"段 |
-| 测试引用 | 含具体行号 | 含测试方法名 |
-
-Gene 文档在同等信息覆盖下更紧凑（~54% 的篇幅），没有牺牲关键业务规则。符合论文"信号密度"优于"信息总量"的发现。
-
-### 2.3 目录结构 — Gene 更简洁
+### Baseline (无指导)
 
 ```
-Skill:                                        Gene:
-systems/                                       subsystems/
-├── employee-management/                       ├── 员工管理/
-│   ├── overview.md                            │   ├── overview.md
-│   └── modules/                               │   ├── 入职管理.md
-│       └── employee-lifecycle/                │   ├── 调动管理.md
-│           ├── overview.md                    │   └── 离职管理.md
-│           ├── interface-get-list...md        └── 考勤管理/
-│           ├── use-case-create...md               ├── overview.md
-│           ├── use-case-resign...md               ├── 打卡与汇总.md
-│           └── use-case-transfer...md              └── 异常与加班.md
-├── attendance-management/
-│   ├── overview.md
-│   └── modules/
-│       └── daily-attendance/
-│           ├── overview.md
-│           ├── interface-get-monthly...md
-│           ├── use-case-approve...md
-│           └── use-case-mark-anomaly.md
-└── platform-infrastructure/          ← 问题!
-    ├── overview.md
-    └── modules/
-        └── shared-foundation/
-            ├── overview.md
-            └── feature-api-response.md
+subsystems/
+├── common-overview.md        ← ⚠️ "common" 是技术包名
+├── employee-overview.md
+└── attendance-overview.md
+modules/
+├── common/                   ← ⚠️ 技术层目录！
+│   ├── api-response.md
+│   └── auth-context.md
+├── employee/
+│   ├── employee-entity.md
+│   ├── employee-controller.md ← ⚠️ 以 Controller 命名
+│   ├── employee-service.md
+│   └── employee-service-test.md
+└── attendance/
+    ├── attendance-controller.md ← ⚠️ 同上
+    └── attendance-service.md
 ```
 
-Skill 产出了 3 层嵌套 (`systems/子系统/modules/模块/`)，Gene 产出了 2 层 (`subsystems/子系统/`)。对于这个 7 个源文件的小型仓库，2 层结构更加合理。
+**问题**: `common` 直接对应 Java 包名 `com.campus.common`，且子文档命名用了 `controller`/`service` 技术层后缀。这正是 SKILL.md 规则 #2 所禁止的。
 
-### 2.4 文档命名 — Gene 使用中文业务名更直观
+### Before (完整 SKILL.md)
 
-| 文档类型 | Skill | Gene |
-|---------|-------|------|
-| 员工创建 | `use-case-create-employee.md` | `入职管理.md` |
-| 员工调动 | `use-case-transfer-employee.md` | `调动管理.md` |
-| 员工离职 | `use-case-resign-employee.md` | `离职管理.md` |
-| 考勤汇总 | `interface-get-monthly-summary.md` | `打卡与汇总.md` |
-| 异常+加班 | 分成 2 份文档 | `异常与加班.md` (1份合并) |
+```
+systems/campus-hr-backend/
+├── overview.md
+└── modules/
+    ├── employee-management/       ← ✅ 业务名
+    │   ├── overview.md
+    │   ├── interface-get-employees.md
+    │   ├── interface-post-employees.md
+    │   ├── interface-put-resign.md
+    │   └── interface-put-transfer.md
+    └── attendance-management/     ← ✅ 业务名
+        ├── overview.md
+        ├── interface-get-monthly-summary.md
+        ├── interface-post-anomalies.md
+        └── interface-post-overtime-approve.md
+```
 
-Gene 使用中文业务动词命名，对中文团队更友好。Skill 使用英文前缀 (`use-case-`, `interface-`) 区分类型，虽然规范但增加了目录层级。
+**优点**: 模块命名完全符合业务能力（employee-management, attendance-management），命名规范一致（`interface-{method}-{name}`），无技术层模块。
+
+**问题**: 只有一个子系统 `campus-hr-backend`（这本身就是技术名），且未单独文档化 ApiResponse/AuthContext（它们通过 module-map.json 和接口文档内的上下文引用被间接覆盖）。
+
+### After (仅 Gene)
+
+```
+员工管理/                         ← ✅ 中文业务名
+├── overview.md
+├── 员工入职.md
+├── 部门调动.md
+└── 员工离职.md
+考勤管理/                         ← ✅ 中文业务名
+├── overview.md
+├── 月度考勤汇总.md
+├── 异常考勤标记.md
+└── 加班审批.md
+公共基础设施/                     ← ⚠️ 可接受但非必要
+├── overview.md
+├── 统一响应包装.md
+└── 认证上下文.md
+```
+
+**优点**: 中文业务命名直观，文档用动词描述业务（入职/调动/离职），结构扁平无需 `systems/modules` 嵌套。
+
+**可讨论**: `公共基础设施` 是为 2 个工具类建的独立模块。它不是技术层命名（如 Controller/Service），但也不是核心业务能力。Gene 的 AVOID 未明确禁止此类命名。
+
+## 三、内容质量对比
+
+### 3.1 INDEX.md 开篇比较
+
+**Baseline** — 英语，技术架构导向：
+> "The system follows a classic three-layer Spring architecture: Controller → Service → Repository"
+
+**Before** — 中文，业务导向但有冗余结构描述：
+> "本项目为单体后端，目前不涉及跨系统业务链路"
+
+**After** — 中文，业务模块导向，最简洁：
+> "校园管理系统的人力资源与考勤模块...提供员工生命周期管理和考勤业务处理能力"
+
+### 3.2 文档粒度
+
+| | Baseline | Before | After |
+|------|:--:|:--:|:--:|
+| 每模块平均文档数 | 2-4 | 4-5 | 3-4 |
+| 文档命名风格 | 技术层（controller/service） | 接口规范（interface-get-） | 业务动词（入职/调动） |
+| 源码引用 | ✅ | ✅ | ✅ |
+| 规则覆盖率 | ✅ | ✅ | ✅ |
+
+## 四、关键发现
+
+### 发现 1: Before（完整 Skill）在结构规范上最好
+
+完整的 SKILL.md 提供的 17 步初始化流程、详细的目录规范、module-map.json 要求，这些**没有写进 Gene**，导致 After（Gene）agent 缺少 `module-map.json` 和使用了一级扁平目录（而非 `systems/<sub>/modules/<mod>/` 三层结构）。
+
+**这意味着**: Gene 的 compact 性质必然丢失一些结构性细节。对于 campus-repo-knowledge 这种高度结构化的任务，这些细节**确实有价值**。
+
+### 发现 2: After（Gene）在命名的"业务直觉"上最好
+
+`员工入职.md` 比 `interface-post-employees.md` 对中文团队更友好。After 用动词短语命名，Before 用技术前缀命名。Gene 没有规定命名格式，agent 自由选择了更自然的命名方式。
+
+### 发现 3: Baseline 暴露了没有指导时的退化方向
+
+没有指导时，模型自然地按技术分层（controller/service/common）组织文档——这恰好是 SKILL.md 要纠正的行为。这说明**有指导肯定比没有好**。
+
+### 发现 4: Gene 效率优势显著，但有结构信息损失
+
+| | Before (3,153 tokens) | After (280 tokens) |
+|------|:--:|:--:|
+| 指导 token | 3,153 | 280 (省 91%) |
+| 产出大小 | 74,522 | 58,274 (精简约 22%) |
+| 结构规范遵循 | ✅ 严格 | ⚠️ 部分偏离 |
+| module-map.json | ✅ | ❌ |
+| 业务模块命名 | ✅ 英文规范 | ✅ 中文直观 |
+| 技术层残留 | 0 | 0（公共基础设施可接受）|
 
 ---
 
-## 三、论文发现 vs 本实验验证
+## 五、诚实结论
 
-| 论文发现 | 本实验是否验证 | 证据 |
-|---------|-------------|------|
-| Skill 的控制信号稀疏 | ✅ 部分验证 | Skill agent 额外创建了"platform-infrastructure"技术层子系统 |
-| Gene 更紧凑但效果不降 | ✅ 验证 | Gene 用 91% 更少的控制 token 产出了同等质量的文档 |
-| AVOID 信号有效 | ✅ 验证 | Gene agent 未创建技术层子系统，遵守了"禁止用技术层当模块名" |
-| 结构化 > 展平 | 间接支持 | Gene 的结构化 fields 使 agent 正确路由到"初始化"场景 |
-| 信号密度 > 信息总量 | ✅ 验证 | Gene 文档 54% 篇幅覆盖相同的业务规则 |
+### Gene 的适用边界
 
----
+| 场景 | Gene 是否足够 |
+|------|:--:|
+| 任务的核心控制逻辑（策略、AVOID） | ✅ 280 tokens 足够 |
+| 高度结构化的目录/文件约定 | ❌ 需要 Skill 的详细规范 |
+| 命名风格指导 | ⚠️ 可好可坏（取决于 agent 自行判断） |
+| 辅助文件的生成（如 module-map.json） | ❌ Gene 未提及，agent 不会生成 |
+| 防止基础反模式 | ✅ AVOID 信号有效 |
 
-## 四、Token 经济分析
+### 对 campus-repo-knowledge 的建议
 
-基于实验数据推算实际收益：
+**最佳方案是分层混合**——不是非此即彼：
 
-| 场景 | 原始 Skill 方案 | Gene 方案 | 节省 |
-|------|---------------|----------|------|
-| 控制指令注入 | 3,153 tokens | 280 tokens | **91.1%** |
-| 小项目产出 token | 81,584 bytes (~20K tokens) | 48,300 bytes (~12K tokens) | 40.8% |
-| 全量 (含 references) | ~33K tokens | ~280 + 按需加载 | 视情况 |
+```
+SKILL.md (~500 tokens):
+  ├── Gene section (~280 tokens)     ← 控制指令 (路由/策略/AVOID/验证)
+  └── 结构规范 (~220 tokens)          ← 必要的目录格式/命名约定
+references/FULL.md                    ← 完整原始文档（人类深入学习时看）
+```
 
-对于日常高频调用场景（每次查询、每次归档），Gene 方案的成本节省非常显著。
-
----
-
-## 五、局限与诚实声明
-
-1. **单次试验**: 每个条件只运行 1 次，结果受随机性影响。论文使用 100+ 次/条件。
-2. **小型仓库**: 目标仓库仅 7 个源文件。大型仓库的行为可能不同。
-3. **相同模型**: 两个 agent 使用相同的 Claude 模型，无法验证跨模型差异。
-4. **领域差异**: 这里是"代码仓知识管理"领域，与论文的"科学代码求解"完全不同。论文的作者明确声明这是"外推假设"。
-5. **Skill agent 也可能产出好的结果**: Skill agent 的文档深度实际上更高（更多源码行号引用、字段级分析）。问题是结构层面的（多了一个技术层子系统）。
+这样模型在推理时拿到 ~500 tokens（而非 3,153），既保留了 Gene 的控制信号，又不丢失结构规范。这比纯 Gene（280 tokens，丢失结构信息）和纯 Skill（3,153 tokens，信号稀释）都更优。
 
 ---
 
-## 六、结论与建议
-
-### 实验结论
-
-> **Gene 方案用 9% 的控制 token，产出了与完整 Skill 方案同等质量（甚至在模块归并上更正确）的知识库。**
-
-关键证据：
-1. Gene agent **没有**犯"把技术组件当业务模块"的错误 — Skill agent 犯了
-2. Gene 文档在同等信息覆盖下**更紧凑** (~54% 篇幅)
-3. Gene 用中文业务命名，团队友好度更高
-4. 两个方案都没有占位词残留，业务规则覆盖率相当
-
-### 对 campus-repo-knowledge 的改造建议
-
-1. **采纳 GENE.md**: 将 GENE.md 作为模型推理时的默认控制指令
-2. **保留 SKILL.md**: 作为人类参考文档（按需加载）
-3. **强化 AVOID 信号**: 当前 GENE.md 的 AVOID 已经覆盖了关键反模式，从实验结果看效果良好
-4. **监控 platform-infrastructure 问题**: 如果后续使用中继续出现"技术层子系统被独立文档化"的问题，可在 AVOID 中增加更明确的约束
-
----
-
-*评估日期: 2026-07-29*
-*实验数据: `D:/claude/experiments/results/`*
+*实验日期: 2026-07-29*

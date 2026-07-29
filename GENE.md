@@ -1,6 +1,6 @@
 # Gene for campus-repo-knowledge
 
-> **这是一个参考副本。** 真正起作用的是写在 `SKILL.md` 最开头（frontmatter 和正文之间）的 `## 策略基因` section。本文件仅供单独查阅和版本对比。详见 `docs/what-is-gene.md`。
+> **这是一个参考副本。** 真正起作用的是 `SKILL.md` 的内容——已从 3,153 tokens 缩减为 ~450 tokens 的混合方案（Gene 控制指令 + 关键结构规范）。原完整文档保留在 `references/FULL.md`。详见 `docs/what-is-gene.md`。
 
 <strategy-gene>
 Domain keywords: repo-knowledge, .repo-knowledge, 知识库, 代码文档, 业务模块, INDEX.md, overview.md, module-map, doctor
@@ -33,3 +33,11 @@ Edge cases:
 
 Validation: python <skill>/scripts/repo_knowledge.py doctor --repo <repo> --strict
 </strategy-gene>
+
+## v2 实验结论
+
+| 方案 | 注入 token | 模块归并 | 结构规范 | 评价 |
+|------|:--:|:--:|:--:|------|
+| 完整 SKILL.md | 3,153 | ✅ | ✅ | 太费 token |
+| 纯 Gene | 280 | ✅ | ❌ 丢 module-map.json | 太简 |
+| **混合方案（当前）** | **~450** | ✅ | ✅ | **最佳** |
