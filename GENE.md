@@ -1,5 +1,7 @@
 # Gene for campus-repo-knowledge
 
+> **这是一个参考副本。** 真正起作用的是写在 `SKILL.md` 最开头（frontmatter 和正文之间）的 `## 策略基因` section。本文件仅供单独查阅和版本对比。详见 `docs/what-is-gene.md`。
+
 <strategy-gene>
 Domain keywords: repo-knowledge, .repo-knowledge, 知识库, 代码文档, 业务模块, INDEX.md, overview.md, module-map, doctor
 

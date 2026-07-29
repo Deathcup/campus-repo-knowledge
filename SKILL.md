@@ -3,6 +3,35 @@ name: campus-repo-knowledge
 description: 为代码仓生成、查询和维护面向人类与 Agent 的实现级分层中文知识库。用于初始化或升级 `.repo-knowledge/`，按“项目总览→子系统总览→业务模块 overview→每个页面/接口/功能点的独立实现文档→源码与测试”渐进理解业务。每个模块必须拥有自己的目录、overview 导航及多份实现细节文档；任务结束前必须清除所有占位词并通过硬性质量门禁。前端逐页面覆盖 View、重要组件、状态、交互和 API 协作；后端逐接口或用例覆盖规则分支、实现算法、数据、事务、并发和副作用。也用于需求完成或未知代码改动后同步知识；适用于单体、多模块、前后端同仓及多语言项目。
 ---
 
+## 策略基因 (Strategy Gene)
+
+<!-- 模型优先读取此 section。约 280 tokens。详见 docs/what-is-gene.md -->
+
+**触发词**: repo-knowledge, .repo-knowledge, 知识库, 代码文档, 业务模块, INDEX.md, module-map, doctor
+
+**一句话**: 在目标仓库建立分层中文知识库 (INDEX→子系统→模块→实现细节)，通过渐进式源码调查产出让新人独立理解业务的开发手册。
+
+**怎么做**:
+1. 判断场景: .repo-knowledge/ 不存在→初始化，用户问代码/接口→分层查询，开发完成→归档，代码变更→同步
+2. 初始化时先运行 init 脚本，再编辑 module-map.json 把 Controller/Service/Mapper 等技术类归并到业务模块
+3. 查询必须渐进: INDEX.md → 子系统 overview → 模块 overview → 实现文档 → 源码，禁止跳过
+4. 每个业务模块至少 overview.md + 2 份实现细节文档，后端按接口拆分，前端按页面拆分
+5. 归档/同步后必须运行 doctor --strict，警告即失败，回源码修正直到"错误 0，警告 0"
+
+**不要做**:
+- 不要把 Controller/Service/Mapper/Repository 等技术层目录名当业务模块名
+- 不要把多个模块的实现平铺在一个 overview.md 里
+- 不要跳过渐进加载直接全局搜索源码
+- 不要在文档里保留 "待补充"/"待调查"/"TODO"/"TBD" 占位词
+- 不要用路由表/接口表/文件清单冒充知识文档
+- 不要在未阅读源码和测试的情况下写业务规则描述
+
+**边界**: module-map.json 有技术层碎片→归并到业务模块，大型仓库→按 subagent-workflow.md 分派，v1/v2/v3 旧格式→先迁移目录再升级
+
+**验证**: `python <skill>/scripts/repo_knowledge.py doctor --repo <repo> --strict`
+
+---
+
 # Campus Repo Knowledge
 
 在目标仓库维护 `.repo-knowledge/`。它是普通 Markdown 工程手册，不是只供 Agent 使用的向量索引，也不是脚本生成的文件清单。
