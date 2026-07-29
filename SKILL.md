@@ -3,9 +3,7 @@ name: campus-repo-knowledge
 description: 在目标仓库建立和维护分层中文知识库。详细文档见 references/FULL.md
 ---
 
-## 策略基因 (Strategy Gene)
-
-<!-- 模型优先读取此 section。约 500 tokens。原理见 docs/what-is-gene.md -->
+## 策略基因
 
 **触发词**: repo-knowledge, .repo-knowledge, 知识库, INDEX.md, module-map, doctor
 
@@ -55,5 +53,4 @@ description: 在目标仓库建立和维护分层中文知识库。详细文档�
 
 ---
 
-> 📖 **人类读者**: 本文档是为模型优化的执行摘要。完整的教学级文档见 [references/FULL.md](references/FULL.md)。
-> 📖 **原理说明**: 为什么这样组织 SKILL.md？见 [docs/what-is-gene.md](docs/what-is-gene.md)。
+> 📖 完整的教学级文档见 [references/FULL.md](references/FULL.md)。

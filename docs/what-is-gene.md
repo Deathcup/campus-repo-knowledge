@@ -21,8 +21,8 @@
 ```
 改造前:                              改造后:
 campus-repo-knowledge/               campus-repo-knowledge/
-├── SKILL.md    ← 3,153 tokens       ├── SKILL.md    ← 280 tokens (Gene)
-│   (模型每次被注入 3,153 tokens)     │   (模型每次被注入 280 tokens)
+├── SKILL.md    ← 3,153 tokens       ├── SKILL.md    ← ~450 tokens (Gene + 结构规范)
+│   (模型每次被注入 3,153 tokens)     │   (模型每次被注入 ~450 tokens)
 ├── USAGE.md                         ├── USAGE.md
 └── references/                      ├── references/
     ├── archive-schema.md                ├── archive-schema.md
@@ -35,7 +35,7 @@ campus-repo-knowledge/               campus-repo-knowledge/
 ```
 
 **关键变化**：
-- `SKILL.md` 从 3,153 tokens 缩减为 ~280 tokens 的 Gene 内容
+- `SKILL.md` 从 3,153 tokens 缩减为 ~450 tokens 的混合方案
 - 原完整内容移到 `references/FULL.md`，人类需要时手动打开看
 - Agent 框架无感知——它照常加载 SKILL.md，只是内容变短了
 
@@ -65,7 +65,7 @@ campus-repo-knowledge/               campus-repo-knowledge/
 
 ### 3.1 一句话
 
-**Gene 是 Skill 的模型执行摘要——把它写成 SKILL.md 的全部内容。**
+**Gene 是 Skill 的模型执行摘要。把 SKILL.md 改造为 Gene 控制指令 + 关键结构规范的混合方案（~450 tokens），完整文档移入 references/。**
 
 ### 3.2 和 Skill 的关系
 
@@ -116,7 +116,7 @@ description: 为代码仓生成、查询和维护面向人类与 Agent 的实现
 ...（还有更多）
 ```
 
-**改造后（SKILL.md，280 tokens）**：
+**改造后（SKILL.md，~450 tokens，混合方案）**：
 ```markdown
 ---
 name: campus-repo-knowledge
@@ -130,26 +130,28 @@ description: 在目标仓库建立和维护分层中文知识库。详细文档�
 **场景路由**:
 - .repo-knowledge/ 不存在 → 初始化
 - 用户问代码/接口 → 分层查询（INDEX→子系统→模块→实现文档→源码，禁止跳步）
-- 开发完成 → 归档（更新模块文档+两级总览+doctor --strict）
-- 代码变更 → 同步（diff 聚类→分片更新→doctor --strict）
+- 开发完成 → 归档
+- 代码变更 → 同步
 
-**初始化要点**:
-1. 运行 init 脚本 → 编辑 module-map.json 把 Controller/Service/Mapper 归并到业务模块
-2. 每个业务模块至少 overview.md + 2 份实现细节文档
-3. 后端按接口拆分，前端按页面拆分
-4. 运行 doctor --strict，警告即失败
+**初始化要点**: ...（5 步核心流程）
+**怎么做（后端/前端）**: ...（各 2-3 条原则）
+**不要做**: ...（6 条 AVOID）
 
-**不要做**:
-- 不要把 Controller/Service/Mapper 等技术层目录当业务模块名（用业务能力命名）
-- 不要把多个模块的实现平铺在一个 overview.md 里
-- 不要跳过渐进加载直接全局搜索源码
-- 不要保留 "待补充"/"TODO"/"TBD" 占位词
-- 不要用路由表/接口表/文件清单冒充知识文档
+**目录规范**:
+.repo-knowledge/
+  INDEX.md
+  systems/<子系统>/overview.md
+  systems/<子系统>/modules/<模块>/
+    overview.md
+    interface-{method}-{name}.md
+  inventory/module-map.json
 
-**验证**: `python <skill>/scripts/repo_knowledge.py doctor --repo <repo> --strict`
+**验证**: python <skill>/scripts/repo_knowledge.py doctor --repo <repo> --strict
+
+> 完整文档见 references/FULL.md
 ```
 
-然后完整的原 SKILL.md 保存在 `references/FULL.md`，并在 SKILL.md 中引用它。
+完整原 SKILL.md 保存在 `references/FULL.md`。注意改造后版本比纯 Gene 多了 ~150 tokens 的目录规范和前后端做法说明——这是因为 v2 实验发现纯 Gene 会丢失 module-map.json 等关键结构约定。
 
 ---
 
@@ -180,21 +182,21 @@ description: 在目标仓库建立和维护分层中文知识库。详细文档�
 ### 5.1 改造步骤
 
 ```
-第 1 步: cp SKILL.md references/FULL.md     # 备份完整文档
-第 2 步: 提取策略步骤 + AVOID，重写 SKILL.md   # 只保留 ~300 tokens 的 Gene
-第 3 步: 在 SKILL.md 末尾加一行指向 FULL.md    # "详细文档见 references/FULL.md"
-第 4 步: git commit                           # 完成
+第 1 步: cp SKILL.md references/FULL.md          # 备份完整文档
+第 2 步: 提取策略步骤 + AVOID + 结构规范，重写 SKILL.md  # 控制在 ~500 tokens
+第 3 步: 在 SKILL.md 末尾引用 FULL.md              # "完整文档见 references/FULL.md"
+第 4 步: git commit                                # 完成
 ```
 
 ### 5.2 改造后的目录结构
 
 ```
 campus-repo-knowledge/
-├── SKILL.md              ← Gene (~280 tokens)，模型每次推理时注入
+├── SKILL.md              ← 混合方案 (~450 tokens)，模型每次推理时注入
 ├── USAGE.md              ← 使用说明（给人看的快速入门）
 ├── GENE.md               ← Gene 参考副本（方便单独查阅和 diff 对比）
 ├── references/
-│   ├── FULL.md           ← 原 SKILL.md 完整版（人类深入学习时看）
+│   ├── FULL.md           ← 原 SKILL.md 完整版（人类学习时看）
 │   ├── archive-schema.md
 │   ├── module-research.md
 │   ├── writing-guide.md
@@ -208,7 +210,7 @@ campus-repo-knowledge/
 
 ```
 模型调用 skill 时:
-  加载 SKILL.md (280 tokens Gene) → 执行任务
+  加载 SKILL.md (~450 tokens 混合方案) → 执行任务
   需要参考时 → 模型会自己去 references/ 找对应文件
 
 人类学习 skill 时:
@@ -266,11 +268,12 @@ campus-repo-knowledge/
 
 | 问题 | 答案 |
 |------|------|
-| Gene 是什么？ | 一个 ~300 tokens 的紧凑控制指令，包含触发词、策略步骤、AVOID 和验证方式 |
-| 怎么让 agent 读到它？ | **把它写成 SKILL.md 的全部内容**。原完整文档移到 references/FULL.md |
-| 和 Skill 的关系？ | Gene 是 Skill 的模型接口。Skill 是完整的知识包（FULL.md + references + scripts），Gene 是它的执行摘要（SKILL.md） |
-| 为什么不单独建 GENE.md？ | 所有 agent 框架只读 SKILL.md。GENE.md 可以作为参考副本，但 agent 不会自动加载它 |
-| 改造需要改 agent 架构吗？ | 不需要。利用现有约定：agent 读 SKILL.md → 我们把 SKILL.md 变成 Gene |
+| Gene 是什么？ | 紧凑的结构化控制指令，包含触发词、策略步骤、AVOID 和验证方式 |
+| 怎么让 agent 读到它？ | **把它写成 SKILL.md 的内容**（~450 tokens 混合方案）。原完整文档移到 references/FULL.md |
+| 纯 Gene 够吗？ | 实验证明不够——会丢失结构规范。推荐混合方案：Gene + 关键结构规范 (~450-500 tokens) |
+| 和 Skill 的关系？ | Gene 是 Skill 的模型接口。Skill 是完整知识包（FULL.md + references + scripts） |
+| 为什么不单独建 GENE.md？ | 所有 agent 框架只读 SKILL.md。不加新文件类型，不依赖新协议 |
+| 改造需要改 agent 架构吗？ | 不需要。利用现有约定：agent 读 SKILL.md → SKILL.md 变短即可 |
 | 会丢失文档吗？ | 不会。完整文档在 references/FULL.md，人类随时可读 |
 
 ---
